@@ -1,0 +1,1476 @@
+<!DOCTYPE html>
+<!--
+  GUTTS Resume Builder — single-file web app for GUTTS pre-apprenticeship students.
+
+  Layout: left editor panel (form fields) + right live preview (print-ready resume).
+  Data lives in a JavaScript `state` object; `render()` rebuilds the preview on every change.
+  Export uses the browser print dialog (@media print hides chrome, shows resume only).
+
+  Run: open this file in any modern browser (double-click or `open GUTTS_Resume_Builder.html`).
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GUTTS Resume Builder</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+<style>
+  /* Brand tokens — navy/orange match GUTTS visual identity */
+  :root {
+    --navy: #2D4B6E;
+    --navy-light: #3a5f8a;
+    --accent: #E8892B;
+    --bg: #F4F6F9;
+    --panel: #ffffff;
+    --border: #DDE3EC;
+    --text: #1a2332;
+    --muted: #6b7a8d;
+    --sidebar-bg: #EEF2F7;
+    --input-bg: #f8fafc;
+    --tag-bg: #e8edf5;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  /* ===== TOP BAR ===== */
+  .topbar {
+    background: var(--navy);
+    padding: 14px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.18);
+  }
+  .topbar-brand { display: flex; align-items: center; gap: 12px; }
+  .topbar-logo {
+    font-family: 'Playfair Display', serif;
+    font-size: 22px;
+    color: white;
+    letter-spacing: 1px;
+  }
+  .topbar-logo span { color: var(--accent); }
+  .topbar-sub {
+    font-size: 12px;
+    color: rgba(255,255,255,0.55);
+    font-family: 'DM Mono', monospace;
+    letter-spacing: 0.5px;
+  }
+  .topbar-actions { display: flex; gap: 10px; }
+
+  .btn {
+    padding: 8px 18px;
+    border-radius: 6px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    transition: all 0.15s;
+  }
+  .btn-ghost {
+    background: rgba(255,255,255,0.1);
+    color: white;
+    border: 1px solid rgba(255,255,255,0.2);
+  }
+  .btn-ghost:hover { background: rgba(255,255,255,0.18); }
+  .btn-accent { background: var(--accent); color: white; }
+  .btn-accent:hover { background: #d67a22; transform: translateY(-1px); }
+
+  /* ===== LAYOUT ===== */
+  .workspace {
+    display: grid;
+    grid-template-columns: 420px 1fr;
+    height: calc(100vh - 56px);
+    overflow: hidden;
+  }
+
+  /* ===== EDITOR PANEL ===== */
+  .editor {
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 0;
+  }
+
+  .editor-section { border-bottom: 1px solid var(--border); }
+
+  .section-header {
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    user-select: none;
+    background: white;
+    transition: background 0.1s;
+  }
+  .section-header:hover { background: #f9fafb; }
+  .section-header-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--navy);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    font-family: 'DM Mono', monospace;
+  }
+  .section-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+  .section-toggle { font-size: 16px; color: var(--muted); transition: transform 0.2s; }
+  .section-toggle.open { transform: rotate(180deg); }
+
+  .section-body { padding: 16px 20px 20px; background: var(--input-bg); display: none; }
+  .section-body.open { display: block; }
+
+  /* ===== FORM FIELDS ===== */
+  .field-group { margin-bottom: 14px; }
+  .field-group label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 5px;
+    font-family: 'DM Mono', monospace;
+  }
+  .field-group input,
+  .field-group textarea,
+  .field-group select {
+    width: 100%;
+    padding: 8px 11px;
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    color: var(--text);
+    transition: border-color 0.15s;
+    outline: none;
+  }
+  .field-group input:focus,
+  .field-group textarea:focus { border-color: var(--navy-light); }
+  .field-group input.input-error { border-color: #c0392b; background: #fff5f5; }
+  .field-group textarea { resize: vertical; min-height: 70px; line-height: 1.5; }
+
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  .field-hint {
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 3px;
+    font-family: 'DM Mono', monospace;
+  }
+  .field-hint.error { color: #c0392b; }
+
+  /* Tag-style list editor */
+  .tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .tag {
+    background: var(--tag-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .tag-remove { cursor: pointer; color: var(--muted); font-size: 14px; line-height: 1; }
+  .tag-remove:hover { color: #c0392b; }
+  .tag-add-row { display: flex; gap: 6px; }
+  .tag-add-row input {
+    flex: 1;
+    padding: 6px 10px;
+    border: 1px dashed var(--border);
+    border-radius: 5px;
+    font-size: 12px;
+    background: white;
+    outline: none;
+    font-family: 'DM Sans', sans-serif;
+  }
+  .tag-add-row input:focus { border-color: var(--navy); border-style: solid; }
+  .tag-add-btn {
+    padding: 6px 12px;
+    background: var(--navy);
+    color: white;
+    border: none;
+    border-radius: 5px;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+  }
+
+  /* Job block */
+  .job-block {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 12px;
+    overflow: hidden;
+  }
+  .job-block-header {
+    padding: 10px 14px;
+    background: var(--tag-bg);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--navy);
+    font-family: 'DM Mono', monospace;
+  }
+  .job-block-remove {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 16px;
+    padding: 0;
+  }
+  .job-block-remove:hover { color: #c0392b; }
+  .job-block-body { padding: 14px; }
+
+  .add-job-btn {
+    width: 100%;
+    padding: 10px;
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+    background: none;
+    color: var(--navy);
+    font-size: 13px;
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 500;
+    transition: all 0.15s;
+    margin-top: 4px;
+  }
+  .add-job-btn:hover { background: var(--tag-bg); border-color: var(--navy); }
+  .add-job-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  /* Bullets in job editor */
+  .bullet-list { margin-bottom: 8px; }
+  .bullet-item { display: flex; align-items: flex-start; gap: 6px; margin-bottom: 5px; }
+  .bullet-item textarea {
+    flex: 1;
+    padding: 5px 8px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: 'DM Sans', sans-serif;
+    resize: none;
+    min-height: 40px;
+    outline: none;
+    color: var(--text);
+  }
+  .bullet-item textarea:focus { border-color: var(--navy); }
+  .bullet-remove {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--muted);
+    padding: 4px;
+    font-size: 15px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .bullet-remove:hover { color: #c0392b; }
+
+  /* Program toggle */
+  .program-toggle {
+    display: flex;
+    gap: 0;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .program-toggle label {
+    flex: 1;
+    text-align: center;
+    padding: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.15s;
+    background: white;
+    color: var(--muted);
+    text-transform: none !important;
+    letter-spacing: 0 !important;
+    margin: 0 !important;
+  }
+  .program-toggle input { display: none; }
+  .program-toggle input:checked + span {
+    display: block;
+    background: var(--navy);
+    color: white;
+    margin: -8px;
+    padding: 8px;
+    border-radius: 5px;
+  }
+
+  /* Overflow warning */
+  .overflow-warning {
+    background: #fff3cd;
+    border: 1px solid #ffc107;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 11px;
+    color: #856404;
+    margin-bottom: 8px;
+    display: none;
+    font-family: 'DM Mono', monospace;
+  }
+  .overflow-warning.visible { display: block; }
+
+  /* Job counter badge */
+  .job-counter {
+    font-size: 10px;
+    font-weight: 400;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    margin-left: 6px;
+  }
+
+  /* ===== TOAST ===== */
+  #toast-container {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: center;
+    pointer-events: none;
+  }
+  .toast {
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 500;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    animation: toastIn 0.2s ease, toastOut 0.3s ease 2.5s forwards;
+    pointer-events: none;
+  }
+  .toast-warn { background: #fff3cd; color: #7a5a00; border: 1px solid #ffc107; }
+  .toast-error { background: #fde8e8; color: #8b1a1a; border: 1px solid #e74c3c; }
+  .toast-info { background: #e8f4fd; color: #1a4a6e; border: 1px solid #3498db; }
+  @keyframes toastIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+  @keyframes toastOut { from { opacity:1; } to { opacity:0; } }
+
+  /* ===== PREVIEW PANEL ===== */
+  .preview {
+    background: #e8ecf1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 24px;
+    gap: 0;
+  }
+
+  .preview-label {
+    font-size: 11px;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+    align-self: flex-start;
+  }
+
+  /* Resume paper — `--rf-*` custom properties are swapped by fit presets (compact → spacious) */
+  .resume-paper {
+    width: 760px;
+    background: white;
+    box-shadow: 0 4px 32px rgba(0,0,0,0.18);
+    font-family: 'DM Sans', sans-serif;
+    line-height: 1.4;
+    flex-shrink: 0;
+    /* Default (Normal) preset values */
+    --rf-base:        12px;
+    --rf-sm:          11.5px;
+    --rf-title:       13px;
+    --rf-contact:     13px;
+    --rf-lh:          1.45;
+    --rf-job-gap:     14px;
+    --rf-bullet-gap:  2px;
+    --rf-section-gap: 16px;
+    --rf-item-gap:    3px;
+    --rf-sidebar-pv:  18px;
+    --rf-sidebar-ph:  14px;
+    --rf-main-pv:     18px;
+    --rf-main-ph:     22px;
+  }
+
+  /* === RESUME STYLES === */
+  .r-header {
+    background: #2D4B6E;
+    padding: 20px 30px 18px;
+    text-align: center;
+  }
+  .r-name {
+    font-family: 'Playfair Display', serif;
+    font-size: 36px;
+    color: white;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  .r-contact-bar {
+    background: #e8edf4;
+    padding: 7px 20px;
+    text-align: center;
+    font-size: var(--rf-contact);
+    color: #444;
+    letter-spacing: 0.3px;
+  }
+
+  .r-body {
+    display: grid;
+    grid-template-columns: 190px 1fr;
+    min-height: 900px;
+  }
+
+  .r-sidebar {
+    background: #EEF2F7;
+    padding: var(--rf-sidebar-pv) var(--rf-sidebar-ph);
+    border-right: 1px solid #dde3ec;
+  }
+
+  .r-sidebar-section { margin-bottom: var(--rf-section-gap); }
+  .r-sidebar-title {
+    font-size: 9.5px;
+    font-weight: 700;
+    color: #2D4B6E;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 6px;
+    padding-bottom: 4px;
+    border-bottom: 1.5px solid #c8d3e0;
+    font-family: 'DM Mono', monospace;
+  }
+  .r-sidebar-item { font-size: var(--rf-base); color: #333; margin-bottom: var(--rf-item-gap); line-height: var(--rf-lh); }
+  .r-edu-degree { font-size: var(--rf-base); font-weight: 600; color: #1a2332; margin-bottom: 1px; }
+  .r-edu-school { font-size: var(--rf-sm); color: #555; font-style: italic; margin-bottom: 1px; }
+  .r-edu-year   { font-size: var(--rf-sm); color: #777; }
+
+  .r-main { padding: var(--rf-main-pv) var(--rf-main-ph); }
+  .r-section-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: #2D4B6E;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding-bottom: 4px;
+    border-bottom: 2px solid #2D4B6E;
+    margin-bottom: 12px;
+    font-family: 'DM Mono', monospace;
+  }
+
+  .r-job { margin-bottom: var(--rf-job-gap); }
+  .r-job-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 1px;
+  }
+  .r-job-title { font-size: var(--rf-title); font-weight: 700; color: #1a2332; }
+  .r-job-date  { font-size: var(--rf-base);  color: #666; font-weight: 500; }
+  .r-job-sub   { font-size: var(--rf-base);  color: #555; font-style: italic; margin-bottom: 4px; }
+  .r-bullet {
+    font-size: var(--rf-base);
+    color: #222;
+    padding-left: 12px;
+    position: relative;
+    margin-bottom: var(--rf-bullet-gap);
+    line-height: var(--rf-lh);
+  }
+  .r-bullet::before { content: "•"; position: absolute; left: 2px; color: #2D4B6E; }
+
+  /* ===== FIT TOOLBAR ===== */
+  .fit-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+    width: 760px;
+    background: white;
+    border-radius: 8px;
+    padding: 9px 14px;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.08);
+  }
+  .fit-label {
+    font-size: 10px;
+    font-family: 'DM Mono', monospace;
+    color: var(--muted);
+    white-space: nowrap;
+    letter-spacing: 0.5px;
+  }
+  .fit-presets { display: flex; gap: 3px; }
+  .fit-btn {
+    padding: 5px 13px;
+    border-radius: 5px;
+    font-size: 12px;
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: white;
+    color: var(--muted);
+    transition: all 0.15s;
+  }
+  .fit-btn:hover { border-color: var(--navy); color: var(--navy); }
+  .fit-btn.active { background: var(--navy); color: white; border-color: var(--navy); }
+  .fit-divider {
+    width: 1px;
+    height: 20px;
+    background: var(--border);
+    margin: 0 4px;
+  }
+  .fit-auto-btn {
+    padding: 5px 14px;
+    border-radius: 5px;
+    font-size: 12px;
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    background: var(--accent);
+    color: white;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .fit-auto-btn:hover { background: #d67a22; transform: translateY(-1px); }
+
+  .page-size-btns { display: flex; gap: 3px; }
+  .page-size-btn {
+    padding: 5px 11px;
+    border-radius: 5px;
+    font-size: 12px;
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: white;
+    color: var(--muted);
+    transition: all 0.15s;
+  }
+  .page-size-btn.active {
+    background: var(--navy);
+    color: white;
+    border-color: var(--navy);
+  }
+  .page-size-btn:hover:not(.active) { background: var(--tag-bg); color: var(--navy); }
+
+  /* Print / Export — hides editor and toolbar; only `.resume-paper` prints */
+  @media print {
+    .topbar, .editor, .preview-label, .fit-toolbar { display: none !important; }
+    .workspace { display: block; height: auto; }
+    .preview { background: white; padding: 0; }
+    .resume-paper { box-shadow: none; width: 100%; }
+    body { background: white; }
+  }
+
+  /* Force backgrounds to print — Chrome strips them by default */
+  .r-header {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .r-contact-bar {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .r-sidebar {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Scrollbar */
+  .editor::-webkit-scrollbar { width: 5px; }
+  .editor::-webkit-scrollbar-track { background: transparent; }
+  .editor::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+</style>
+</head>
+<body>
+
+<!-- Floating notifications for validation limits and auto-fit feedback -->
+<div id="toast-container"></div>
+
+<!-- Sticky header: template shortcuts + print-to-PDF export -->
+<div class="topbar">
+  <div class="topbar-brand">
+    <div>
+      <div class="topbar-logo">GUTTS <span>//</span> Resume Builder</div>
+      <div class="topbar-sub">Ground Up Trade & Talent Solutions — Fairfax, VA</div>
+    </div>
+  </div>
+  <div class="topbar-actions">
+    <button class="btn btn-ghost" onclick="loadTemplate('hvac')">Load HVAC Template</button>
+    <button class="btn btn-ghost" onclick="loadTemplate('plumbing')">Load Plumbing Template</button>
+    <button class="btn btn-accent" onclick="exportPDF()">⬇ Export PDF</button>
+  </div>
+</div>
+
+<!-- Two-column workspace: form editor (left) + live resume preview (right) -->
+<div class="workspace">
+  <!-- ===== EDITOR ===== -->
+  <div class="editor">
+
+    <!-- Personal Info -->
+    <div class="editor-section">
+      <div class="section-header" onclick="toggleSection(this)">
+        <div class="section-header-title"><div class="section-dot"></div> Personal Info</div>
+        <div class="section-toggle open">▾</div>
+      </div>
+      <div class="section-body open">
+        <div class="field-group">
+          <label>Full Name</label>
+          <input type="text" id="f-name" placeholder="e.g. Marcus Johnson" maxlength="60" oninput="render()">
+        </div>
+        <div class="field-row">
+          <div class="field-group">
+            <label>Phone</label>
+            <input type="tel" id="f-phone" placeholder="555-000-0000" maxlength="12" oninput="formatPhone(this)">
+            <div class="field-hint" id="phone-hint"></div>
+          </div>
+          <div class="field-group">
+            <label>Email</label>
+            <input type="text" id="f-email" placeholder="name@email.com" maxlength="80" oninput="validateEmail(this)">
+            <div class="field-hint" id="email-hint"></div>
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field-group">
+            <label>City</label>
+            <input type="text" id="f-city" placeholder="Woodbridge" maxlength="40" oninput="render()">
+          </div>
+          <div class="field-group">
+            <label>State</label>
+            <input type="text" id="f-state" placeholder="VA" maxlength="2"
+              oninput="this.value=this.value.toUpperCase().replace(/[^A-Z]/g,'');render()">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Program -->
+    <div class="editor-section">
+      <div class="section-header" onclick="toggleSection(this)">
+        <div class="section-header-title"><div class="section-dot"></div> GUTTS Program</div>
+        <div class="section-toggle">▾</div>
+      </div>
+      <div class="section-body">
+        <div class="field-group">
+          <label>Program Type</label>
+          <div class="program-toggle">
+            <label onclick="setProgram('hvac')"><input type="radio" name="prog" value="hvac"><span>HVAC</span></label>
+            <label onclick="setProgram('plumbing')"><input type="radio" name="prog" value="plumbing"><span>Plumbing</span></label>
+          </div>
+        </div>
+        <div class="field-group">
+          <label>Graduation Month/Year</label>
+          <input type="text" id="f-grad-date" placeholder="MAR 2026" maxlength="10" oninput="render()">
+        </div>
+      </div>
+    </div>
+
+    <!-- Education -->
+    <div class="editor-section">
+      <div class="section-header" onclick="toggleSection(this)">
+        <div class="section-header-title"><div class="section-dot"></div> Education</div>
+        <div class="section-toggle">▾</div>
+      </div>
+      <div class="section-body">
+        <div class="field-group">
+          <label>Degree / Field of Study</label>
+          <input type="text" id="f-edu-degree" placeholder="Heating and Air Conditioning" maxlength="80" oninput="render()">
+        </div>
+        <div class="field-group">
+          <label>School Name</label>
+          <input type="text" id="f-edu-school" placeholder="Ashworth College" maxlength="80" oninput="render()">
+        </div>
+        <div class="field-row">
+          <div class="field-group">
+            <label>City, State</label>
+            <input type="text" id="f-edu-city" placeholder="Norcross, GA" maxlength="40" oninput="render()">
+          </div>
+          <div class="field-group">
+            <label>Year</label>
+            <input type="text" id="f-edu-year" placeholder="2020" maxlength="4"
+              oninput="this.value=this.value.replace(/[^0-9]/g,'');render()">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Technical Skills -->
+    <div class="editor-section">
+      <div class="section-header" onclick="toggleSection(this)">
+        <div class="section-header-title"><div class="section-dot"></div> Technical Skills</div>
+        <div class="section-toggle">▾</div>
+      </div>
+      <div class="section-body">
+        <div class="tag-list" id="tech-tags"></div>
+        <div class="tag-add-row">
+          <input type="text" id="tech-input" placeholder="Add a skill..." maxlength="50"
+            onkeydown="if(event.key==='Enter')addTag('tech')">
+          <button class="tag-add-btn" onclick="addTag('tech')">+ Add</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Soft Skills -->
+    <div class="editor-section">
+      <div class="section-header" onclick="toggleSection(this)">
+        <div class="section-header-title"><div class="section-dot"></div> Soft Skills</div>
+        <div class="section-toggle">▾</div>
+      </div>
+      <div class="section-body">
+        <div class="tag-list" id="soft-tags"></div>
+        <div class="tag-add-row">
+          <input type="text" id="soft-input" placeholder="Add a skill..." maxlength="50"
+            onkeydown="if(event.key==='Enter')addTag('soft')">
+          <button class="tag-add-btn" onclick="addTag('soft')">+ Add</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Certifications -->
+    <div class="editor-section">
+      <div class="section-header" onclick="toggleSection(this)">
+        <div class="section-header-title"><div class="section-dot"></div> Certifications</div>
+        <div class="section-toggle">▾</div>
+      </div>
+      <div class="section-body">
+        <div class="tag-list" id="cert-tags"></div>
+        <div class="tag-add-row">
+          <input type="text" id="cert-input" placeholder="Add a cert..." maxlength="80"
+            onkeydown="if(event.key==='Enter')addTag('cert')">
+          <button class="tag-add-btn" onclick="addTag('cert')">+ Add</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Relevant Info -->
+    <div class="editor-section">
+      <div class="section-header" onclick="toggleSection(this)">
+        <div class="section-header-title"><div class="section-dot"></div> Relevant Info</div>
+        <div class="section-toggle">▾</div>
+      </div>
+      <div class="section-body">
+        <div class="tag-list" id="info-tags"></div>
+        <div class="tag-add-row">
+          <input type="text" id="info-input" placeholder="e.g. Driver's License: Yes" maxlength="60"
+            onkeydown="if(event.key==='Enter')addTag('info')">
+          <button class="tag-add-btn" onclick="addTag('info')">+ Add</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Experience -->
+    <div class="editor-section">
+      <div class="section-header" onclick="toggleSection(this)">
+        <div class="section-header-title">
+          <div class="section-dot"></div> Work Experience
+          <span class="job-counter" id="job-counter"></span>
+        </div>
+        <div class="section-toggle open">▾</div>
+      </div>
+      <div class="section-body open">
+        <div class="overflow-warning" id="overflow-warning">
+          ⚠ Resume may overflow one page. Consider reducing jobs or bullet points.
+        </div>
+        <div id="jobs-container"></div>
+        <button class="add-job-btn" id="add-job-btn" onclick="addJob()">+ Add Job</button>
+      </div>
+    </div>
+
+  </div><!-- /editor -->
+
+  <!-- ===== PREVIEW ===== -->
+  <!-- Live resume mock-up; #resume-output is filled by render() -->
+  <div class="preview">
+    <div class="preview-label">↳ Live Preview</div>
+
+    <div class="fit-toolbar">
+      <span class="fit-label">RESUME FIT</span>
+      <div class="fit-presets">
+        <button class="fit-btn" id="fit-btn-compact"  onclick="applyPreset('compact')">Compact</button>
+        <button class="fit-btn active" id="fit-btn-normal" onclick="applyPreset('normal')">Normal</button>
+        <button class="fit-btn" id="fit-btn-roomy"    onclick="applyPreset('roomy')">Roomy</button>
+        <button class="fit-btn" id="fit-btn-spacious" onclick="applyPreset('spacious')">Spacious</button>
+      </div>
+      <div class="fit-divider"></div>
+      <button class="fit-auto-btn" onclick="autoFit()">⚡ Auto-Fit</button>
+      <div class="fit-divider"></div>
+      <span class="fit-label">PAPER</span>
+      <div class="page-size-btns">
+        <button class="page-size-btn active" id="page-btn-letter" onclick="setPageSize('letter')">Letter</button>
+        <button class="page-size-btn" id="page-btn-a4" onclick="setPageSize('a4')">A4</button>
+      </div>
+    </div>
+
+    <div class="resume-paper" id="resume-output"></div>
+  </div>
+</div>
+
+<script>
+/**
+ * GUTTS Resume Builder — application logic
+ *
+ * Architecture:
+ *   - `state` holds skills, certs, jobs (arrays/objects not in the DOM)
+ *   - Plain form fields (f-name, f-phone, etc.) are read via g() on each render
+ *   - `render()` writes the full resume HTML into #resume-output
+ *   - `renderJobs()` rebuilds job editor blocks (only when structure changes)
+ *   - `updateJob()` intentionally avoids renderJobs() on keystroke to preserve focus
+ */
+
+// ===== LIMITS =====
+// Caps keep content on a single printed page
+const MAX_JOBS = 4;
+const MAX_BULLETS = 7;
+const MAX_SKILLS = 20;
+const MAX_CERTS = 8;
+
+// ===== STATE =====
+// In-memory model; not persisted — refresh resets unless user re-enters data
+let state = {
+  program: 'hvac',
+  pageSize: 'letter',
+  techSkills: [],
+  softSkills: [],
+  certs: [],
+  info: [],
+  jobs: []
+};
+
+// ===== TEMPLATES =====
+// Pre-filled HVAC vs Plumbing copy for GUTTS 72-hour pre-apprenticeship graduates
+const templates = {
+  hvac: {
+    techSkills: ['Basic Troubleshooting','Hand and power tools','Electrical Safety','Refrigeration Cycle','Cooling systems','Heating systems','Basic electrical circuits','Brazing, flaring, and swaging','Copper Tubing','Coil cleaning','PVC piping','PEX A'],
+    softSkills: ['Strategic Planning','Problem Solving','Crisis Management','Eagerness to Learn','Written & Verbal Communication','Customer Service','Teamwork'],
+    certs: ['GUTTS HVAC 72-hour Pre-Apprenticeship Program','State of Virginia DPOR Accredited Training','PHCC Accreditation for Pre-Apprenticeship Program','EPA 608 Type I, II, & III'],
+    info: ["Driver's License: Yes", "US Citizen: Yes"],
+    job0bullets: [
+      'Completed a 72-hour PHCC & DPOR accredited training program',
+      'Trained in installation, maintenance, and repair of furnaces, heat pumps, boilers, and hydronic systems',
+      'Gained knowledge of refrigeration cycles, compressors, evaporators, condensers, metering devices, and system controls',
+      'Learned safety protocols including PPE, hazardous materials, and OSHA regulations',
+      'Developed effective communication and professional soft skills for residential and job-site environments',
+    ],
+    job0title: 'HVACR PRE-APPRENTICESHIP',
+  },
+  plumbing: {
+    techSkills: ['Basic Troubleshooting','Hand and power tools','Electrical Safety','Copper Pipe Installation','Steel Pipe Installation','Cast Iron Pipe','CPVC & PVC','Gas Pipe Installation','PEX A Installation','Fluid Dynamics / Rough-ins','Drain-Waste-Vent Systems','Fixture Installation'],
+    softSkills: ['Problem Solving','Attention to Detail','Teamwork','Eagerness to Learn','Written & Verbal Communication','Customer Service','Time Management'],
+    certs: ['GUTTS Plumbing 72-hour Pre-Apprenticeship Program','State of Virginia DPOR Accredited Training','PHCC Accreditation for Pre-Apprenticeship Program'],
+    info: ["Driver's License: Yes", "US Citizen: Yes"],
+    job0bullets: [
+      'Completed a 72-hour PHCC & DPOR accredited training program in plumbing fundamentals',
+      'Trained in installation of copper, steel, cast iron, CPVC, PVC, gas, and PEX A piping systems',
+      'Gained understanding of fluid dynamics and rough-in procedures to execute system repairs with minimal supervision',
+      'Learned safety protocols including PPE, hazardous materials, and OSHA regulations',
+      'Developed effective communication and professional soft skills for residential and job-site environments',
+    ],
+    job0title: 'PLUMBING PRE-APPRENTICESHIP',
+  }
+};
+
+/** Replace skills/certs and seed Job 1 with program-specific GUTTS pre-apprenticeship content */
+function loadTemplate(type) {
+  const t = templates[type];
+  state.program = type;
+  state.techSkills = [...t.techSkills];
+  state.softSkills = [...t.softSkills];
+  state.certs = [...t.certs];
+  state.info = [...t.info];
+
+  if (state.jobs.length === 0) {
+    state.jobs = [{
+      id: Date.now(),
+      title: t.job0title,
+      company: 'Ground Up Trade & Talent Solutions',
+      location: 'Fairfax, VA',
+      date: 'MAR 2026',
+      bullets: [...t.job0bullets]
+    }];
+  } else {
+    state.jobs[0].title = t.job0title;
+    state.jobs[0].bullets = [...t.job0bullets];
+  }
+
+  // Check the correct radio button
+  const radio = document.querySelector(`input[name="prog"][value="${type}"]`);
+  if (radio) radio.checked = true;
+
+  renderTags('tech'); renderTags('soft'); renderTags('cert'); renderTags('info');
+  renderJobs();
+  render();
+}
+
+// ===== TOAST =====
+/** Brief bottom-center message (warn | error | info); auto-removed after ~3s */
+function showToast(msg, type = 'warn') {
+  const container = document.getElementById('toast-container');
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.textContent = msg;
+  container.appendChild(el);
+  setTimeout(() => el.remove(), 2900);
+}
+
+// ===== SECTION TOGGLE =====
+/** Expand/collapse an editor accordion section */
+function toggleSection(header) {
+  const body = header.nextElementSibling;
+  const toggle = header.querySelector('.section-toggle');
+  body.classList.toggle('open');
+  toggle.classList.toggle('open');
+}
+
+// ===== PROGRAM =====
+const PROGRAM_TITLES = {
+  hvac:     'HVACR PRE-APPRENTICESHIP',
+  plumbing: 'PLUMBING PRE-APPRENTICESHIP'
+};
+
+/** Switch HVAC ↔ Plumbing; updates Job 1 title to match program */
+function setProgram(p) {
+  state.program = p;
+  // Sync job 0 title to the selected program
+  if (state.jobs.length > 0 && PROGRAM_TITLES[p]) {
+    state.jobs[0].title = PROGRAM_TITLES[p];
+    const headerEl = document.getElementById('job-header-' + state.jobs[0].id);
+    if (headerEl) headerEl.textContent = `Job 1 — ${PROGRAM_TITLES[p]}`;
+    // Update the job title input in the editor without full re-render
+    const jobBlocks = document.querySelectorAll('.job-block');
+    if (jobBlocks[0]) {
+      const titleInput = jobBlocks[0].querySelector('input[placeholder="e.g. HVAC Technician"]');
+      if (titleInput) titleInput.value = PROGRAM_TITLES[p];
+    }
+  }
+  render();
+}
+
+// ===== PHONE FORMATTING =====
+/** Auto-format as XXX-XXX-XXXX; show hint until 10 digits */
+function formatPhone(input) {
+  // Strip everything except digits
+  let digits = input.value.replace(/\D/g, '').slice(0, 10);
+  let formatted = digits;
+  if (digits.length >= 7) {
+    formatted = digits.slice(0,3) + '-' + digits.slice(3,6) + '-' + digits.slice(6);
+  } else if (digits.length >= 4) {
+    formatted = digits.slice(0,3) + '-' + digits.slice(3);
+  }
+  input.value = formatted;
+
+  const hint = document.getElementById('phone-hint');
+  if (digits.length > 0 && digits.length < 10) {
+    input.classList.add('input-error');
+    hint.className = 'field-hint error';
+    hint.textContent = `${10 - digits.length} more digit(s) needed`;
+  } else {
+    input.classList.remove('input-error');
+    hint.className = 'field-hint';
+    hint.textContent = '';
+  }
+  render();
+}
+
+// ===== EMAIL VALIDATION =====
+/** Lightweight checks (@ and domain dot); does not block typing */
+function validateEmail(input) {
+  const hint = document.getElementById('email-hint');
+  const val = input.value.trim();
+  if (val && !val.includes('@')) {
+    input.classList.add('input-error');
+    hint.className = 'field-hint error';
+    hint.textContent = 'Missing @ symbol';
+  } else if (val && !val.includes('.')) {
+    input.classList.add('input-error');
+    hint.className = 'field-hint error';
+    hint.textContent = 'Missing domain (e.g. .com)';
+  } else {
+    input.classList.remove('input-error');
+    hint.className = 'field-hint';
+    hint.textContent = '';
+  }
+  render();
+}
+
+// ===== TAG SYSTEM =====
+// Tags = skills, certs, or info lines shown in the resume sidebar
+function addTag(type) {
+  const input = document.getElementById(type + '-input');
+  const val = input.value.trim();
+  if (!val) return;
+
+  const arr = getArr(type);
+
+  // Duplicate check (case-insensitive)
+  if (arr.some(item => item.toLowerCase() === val.toLowerCase())) {
+    showToast(`"${val}" is already in the list.`, 'warn');
+    input.value = '';
+    return;
+  }
+
+  // Limit check
+  const limit = (type === 'cert') ? MAX_CERTS : MAX_SKILLS;
+  if ((type === 'tech' || type === 'soft' || type === 'cert') && arr.length >= limit) {
+    showToast(`Maximum ${limit} items reached. Remove one first.`, 'warn');
+    return;
+  }
+
+  arr.push(val);
+  input.value = '';
+  renderTags(type);
+  render();
+}
+
+function removeTag(type, idx) {
+  getArr(type).splice(idx, 1);
+  renderTags(type);
+  render();
+}
+
+/** Map tag type string to the correct state array */
+function getArr(type) {
+  return type === 'tech' ? state.techSkills
+       : type === 'soft' ? state.softSkills
+       : type === 'cert' ? state.certs
+       : state.info;
+}
+
+/** Paint tag chips in the editor for tech | soft | cert | info */
+function renderTags(type) {
+  const container = document.getElementById(type + '-tags');
+  const arr = getArr(type);
+  container.innerHTML = arr.map((item, i) =>
+    `<div class="tag">${escHtml(item)}<span class="tag-remove" onclick="removeTag('${type}',${i})">×</span></div>`
+  ).join('');
+}
+
+// ===== JOBS =====
+/** Add another work experience block (max MAX_JOBS) */
+function addJob() {
+  if (state.jobs.length >= MAX_JOBS) {
+    showToast(`Maximum ${MAX_JOBS} jobs allowed to keep the resume on one page.`, 'warn');
+    return;
+  }
+  state.jobs.push({ id: Date.now(), title: '', company: '', location: '', date: '', bullets: [''] });
+  renderJobs();
+  render();
+}
+
+function removeJob(id) {
+  state.jobs = state.jobs.filter(j => j.id !== id);
+  renderJobs();
+  render();
+}
+
+function addBullet(jobId) {
+  const job = state.jobs.find(j => j.id === jobId);
+  if (!job) return;
+  if (job.bullets.length >= MAX_BULLETS) {
+    showToast(`Maximum ${MAX_BULLETS} bullet points per job.`, 'warn');
+    return;
+  }
+  job.bullets.push('');
+  renderJobs();
+  render();
+}
+
+function removeBullet(jobId, idx) {
+  const job = state.jobs.find(j => j.id === jobId);
+  if (!job) return;
+  job.bullets.splice(idx, 1);
+  renderJobs();
+  render();
+}
+
+/** Rebuild all job editor UI from state.jobs (call when jobs added/removed/restructured) */
+function renderJobs() {
+  const container = document.getElementById('jobs-container');
+  container.innerHTML = state.jobs.map((job, ji) => `
+    <div class="job-block">
+      <div class="job-block-header">
+        <span id="job-header-${job.id}">Job ${ji + 1}${job.title ? ' — ' + escHtml(job.title) : ''}</span>
+        <button class="job-block-remove" onclick="removeJob(${job.id})" title="Remove job">×</button>
+      </div>
+      <div class="job-block-body">
+        <div class="field-group">
+          <label>Job Title</label>
+          <input type="text" value="${escAttr(job.title)}" placeholder="e.g. HVAC Technician" maxlength="80"
+            oninput="updateJob(${job.id},'title',this.value)">
+        </div>
+        <div class="field-row">
+          <div class="field-group">
+            <label>Company</label>
+            <input type="text" value="${escAttr(job.company)}" placeholder="Company Name" maxlength="80"
+              oninput="updateJob(${job.id},'company',this.value)">
+          </div>
+          <div class="field-group">
+            <label>Location</label>
+            <input type="text" value="${escAttr(job.location)}" placeholder="City, ST" maxlength="40"
+              oninput="updateJob(${job.id},'location',this.value)">
+          </div>
+        </div>
+        <div class="field-group">
+          <label>Date Range</label>
+          ${ji === 0
+            ? `<input type="text" value="${escAttr(g('f-grad-date') || 'MAR 2026')}" readonly
+                style="background:#f0f4f8;color:#888;cursor:not-allowed;border-style:dashed">
+               <div class="field-hint">↑ Set via Graduation Month/Year in GUTTS Program section</div>`
+            : `<input type="text" value="${escAttr(job.date)}" placeholder="JAN 2024 – PRESENT" maxlength="30"
+                oninput="updateJob(${job.id},'date',this.value)">`
+          }
+        </div>
+        <div class="field-group">
+          <label>Bullet Points <span style="font-size:9px;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">(${job.bullets.length}/${MAX_BULLETS})</span></label>
+          <div class="bullet-list">
+            ${job.bullets.map((b, bi) => `
+              <div class="bullet-item">
+                <textarea rows="2" maxlength="220" placeholder="Describe what you did..."
+                  oninput="updateBullet(${job.id},${bi},this.value)">${escHtml(b)}</textarea>
+                <button class="bullet-remove" onclick="removeBullet(${job.id},${bi})" title="Remove bullet">×</button>
+              </div>
+            `).join('')}
+          </div>
+          <button class="tag-add-btn" style="font-size:11px;padding:5px 10px;"
+            onclick="addBullet(${job.id})"
+            ${job.bullets.length >= MAX_BULLETS ? 'disabled title="Max bullets reached"' : ''}>
+            + Add Bullet
+          </button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+
+  // Update job counter badge
+  const counter = document.getElementById('job-counter');
+  if (counter) counter.textContent = `(${state.jobs.length}/${MAX_JOBS})`;
+
+  // Update add-job button
+  const addBtn = document.getElementById('add-job-btn');
+  if (addBtn) {
+    addBtn.disabled = state.jobs.length >= MAX_JOBS;
+    addBtn.title = state.jobs.length >= MAX_JOBS ? `Max ${MAX_JOBS} jobs allowed` : '';
+  }
+}
+
+// KEY FIX: updateJob no longer calls renderJobs() — that caused inputs to lose focus on every keystroke.
+// Instead, only the header label is updated directly in the DOM.
+function updateJob(id, field, val) {
+  const job = state.jobs.find(j => j.id === id);
+  if (!job) return;
+  job[field] = val;
+
+  // Update the job header label without re-rendering the whole form
+  if (field === 'title') {
+    const ji = state.jobs.findIndex(j => j.id === id);
+    const headerEl = document.getElementById('job-header-' + id);
+    if (headerEl) {
+      headerEl.textContent = `Job ${ji + 1}${val ? ' — ' + val : ''}`;
+    }
+  }
+  render();
+}
+
+function updateBullet(jobId, idx, val) {
+  const job = state.jobs.find(j => j.id === jobId);
+  if (!job) return;
+  job.bullets[idx] = val;
+  checkOverflow();
+  render();
+}
+
+// ===== OVERFLOW CHECK =====
+/** Heuristic line count — warns if resume likely exceeds one printed page */
+function checkOverflow() {
+  // Rough estimate: each bullet ~1.5 lines, each job header ~2 lines. Main area fits ~60 lines.
+  let lineEstimate = 0;
+  state.jobs.forEach(job => {
+    lineEstimate += 3; // header + company line
+    lineEstimate += job.bullets.filter(b => b.trim()).length * 1.8;
+  });
+
+  const threshold = (PAGE_SIZES[state.pageSize] || PAGE_SIZES.letter).overflowThreshold;
+  const warning = document.getElementById('overflow-warning');
+  if (warning) {
+    if (lineEstimate > threshold) {
+      warning.classList.add('visible');
+    } else {
+      warning.classList.remove('visible');
+    }
+  }
+}
+
+// ===== RENDER RESUME =====
+/** Read a form field value by element id */
+function g(id) { return (document.getElementById(id) || {}).value || ''; }
+
+/** Main preview update — merges form fields + state into #resume-output HTML */
+function render() {
+  const name     = g('f-name')       || 'STUDENT NAME';
+  const phone    = g('f-phone')      || '000-000-0000';
+  const email    = g('f-email')      || 'email@email.com';
+  const city     = g('f-city')       || 'City';
+  const st       = g('f-state')      || 'ST';
+  const eduDeg   = g('f-edu-degree') || 'Field of Study';
+  const eduSchool= g('f-edu-school') || 'School Name';
+  const eduCity  = g('f-edu-city')   || '';
+  const eduYear  = g('f-edu-year')   || 'Year';
+  const gradDate = g('f-grad-date')  || 'MAR 2026';
+
+  const certHtml = state.certs.map(c => `<div class="r-sidebar-item">${escHtml(c)}</div>`).join('');
+  const techHtml = state.techSkills.map(s => `<div class="r-sidebar-item">${escHtml(s)}</div>`).join('');
+  const softHtml = state.softSkills.map(s => `<div class="r-sidebar-item">${escHtml(s)}</div>`).join('');
+  const infoHtml = state.info.map(s => `<div class="r-sidebar-item">${escHtml(s)}</div>`).join('');
+
+  // Job 0 = GUTTS pre-apprenticeship; date comes from #f-grad-date, not job.date
+  const jobsHtml = state.jobs.map((job, idx) => `
+    <div class="r-job">
+      <div class="r-job-header">
+        <div class="r-job-title">${escHtml(job.title || 'Job Title')}</div>
+        <div class="r-job-date">${escHtml(idx === 0 ? gradDate : (job.date || ''))}</div>
+      </div>
+      <div class="r-job-sub">${escHtml(job.company || 'Company')} | ${escHtml(job.location || 'Location')}</div>
+      ${job.bullets.filter(b => b.trim()).map(b => `<div class="r-bullet">${escHtml(b)}</div>`).join('')}
+    </div>
+  `).join('');
+
+  document.getElementById('resume-output').innerHTML = `
+    <div class="r-header">
+      <div class="r-name">${escHtml(name)}</div>
+    </div>
+    <div class="r-contact-bar">
+      ${escHtml(city)}, ${escHtml(st)} &nbsp;|&nbsp; ${escHtml(phone)} &nbsp;|&nbsp; ${escHtml(email)}
+    </div>
+    <div class="r-body">
+      <div class="r-sidebar">
+        ${certHtml ? `<div class="r-sidebar-section"><div class="r-sidebar-title">Certificates & Accreditations</div>${certHtml}</div>` : ''}
+        <div class="r-sidebar-section">
+          <div class="r-sidebar-title">Education</div>
+          <div class="r-edu-degree">${escHtml(eduDeg)}</div>
+          <div class="r-edu-school">${escHtml(eduSchool)}${eduCity ? ', ' + escHtml(eduCity) : ''}</div>
+          <div class="r-edu-year">${escHtml(eduYear)}</div>
+        </div>
+        ${techHtml ? `<div class="r-sidebar-section"><div class="r-sidebar-title">Technical Skills</div>${techHtml}</div>` : ''}
+        ${softHtml ? `<div class="r-sidebar-section"><div class="r-sidebar-title">Soft Skills</div>${softHtml}</div>` : ''}
+        ${infoHtml ? `<div class="r-sidebar-section"><div class="r-sidebar-title">Relevant Information</div>${infoHtml}</div>` : ''}
+      </div>
+      <div class="r-main">
+        <div class="r-section-title">Professional Experience</div>
+        ${jobsHtml || '<div style="font-size:11px;color:#999">No experience added yet.</div>'}
+      </div>
+    </div>
+  `;
+
+  checkOverflow();
+}
+
+// ===== EXPORT =====
+/** Validate required fields, then open browser print dialog (Save as PDF) */
+function exportPDF() {
+  // Validate before export
+  const phone = g('f-phone');
+  const email = g('f-email');
+  const name = g('f-name');
+
+  if (!name.trim()) {
+    showToast('Please enter a name before exporting.', 'error');
+    return;
+  }
+  if (phone && phone.replace(/\D/g,'').length > 0 && phone.replace(/\D/g,'').length < 10) {
+    showToast('Phone number is incomplete. Please fix before exporting.', 'error');
+    return;
+  }
+  if (email && !email.includes('@')) {
+    showToast('Email address looks invalid. Please fix before exporting.', 'error');
+    return;
+  }
+
+  window.print();
+}
+
+// ===== UTILS =====
+/** Escape text for safe HTML insertion */
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+/** Escape text for use inside HTML attribute values */
+function escAttr(s) {
+  return String(s)
+    .replace(/&/g,'&amp;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#x27;');
+}
+
+// ===== RESUME FIT =====
+// Typography/spacing presets applied as CSS custom properties on .resume-paper
+const PRESETS = {
+  compact: {
+    '--rf-base':        '9px',
+    '--rf-sm':          '8.5px',
+    '--rf-title':       '10px',
+    '--rf-contact':     '10px',
+    '--rf-lh':          '1.35',
+    '--rf-job-gap':     '8px',
+    '--rf-bullet-gap':  '1px',
+    '--rf-section-gap': '10px',
+    '--rf-item-gap':    '2px',
+    '--rf-sidebar-pv':  '14px',
+    '--rf-sidebar-ph':  '10px',
+    '--rf-main-pv':     '14px',
+    '--rf-main-ph':     '16px',
+  },
+  normal: {
+    '--rf-base':        '12px',
+    '--rf-sm':          '11.5px',
+    '--rf-title':       '13px',
+    '--rf-contact':     '13px',
+    '--rf-lh':          '1.45',
+    '--rf-job-gap':     '14px',
+    '--rf-bullet-gap':  '2px',
+    '--rf-section-gap': '16px',
+    '--rf-item-gap':    '3px',
+    '--rf-sidebar-pv':  '18px',
+    '--rf-sidebar-ph':  '14px',
+    '--rf-main-pv':     '18px',
+    '--rf-main-ph':     '22px',
+  },
+  roomy: {
+    '--rf-base':        '12px',
+    '--rf-sm':          '11.5px',
+    '--rf-title':       '13px',
+    '--rf-contact':     '13px',
+    '--rf-lh':          '1.58',
+    '--rf-job-gap':     '20px',
+    '--rf-bullet-gap':  '4px',
+    '--rf-section-gap': '22px',
+    '--rf-item-gap':    '5px',
+    '--rf-sidebar-pv':  '22px',
+    '--rf-sidebar-ph':  '16px',
+    '--rf-main-pv':     '22px',
+    '--rf-main-ph':     '26px',
+  },
+  spacious: {
+    '--rf-base':        '13px',
+    '--rf-sm':          '12.5px',
+    '--rf-title':       '14px',
+    '--rf-contact':     '14px',
+    '--rf-lh':          '1.7',
+    '--rf-job-gap':     '28px',
+    '--rf-bullet-gap':  '6px',
+    '--rf-section-gap': '30px',
+    '--rf-item-gap':    '7px',
+    '--rf-sidebar-pv':  '28px',
+    '--rf-sidebar-ph':  '18px',
+    '--rf-main-pv':     '28px',
+    '--rf-main-ph':     '28px',
+  }
+};
+
+let currentPreset = 'normal';
+
+/** Apply Compact | Normal | Roomy | Spacious spacing to the live preview */
+function applyPreset(name) {
+  if (!PRESETS[name]) return;
+  const paper = document.getElementById('resume-output');
+  Object.entries(PRESETS[name]).forEach(([prop, val]) => {
+    paper.style.setProperty(prop, val);
+  });
+  currentPreset = name;
+  updatePresetUI();
+}
+
+function updatePresetUI() {
+  ['compact','normal','roomy','spacious'].forEach(name => {
+    const btn = document.getElementById('fit-btn-' + name);
+    if (btn) btn.classList.toggle('active', name === currentPreset);
+  });
+}
+
+// Page dimensions at 96 dpi, scaled to our 760px display width:
+//   Letter 8.5×11in  → 816×1056px → scaled: 760×983px
+//   A4     210×297mm → 794×1123px → scaled: 760×1076px
+const PAGE_SIZES = {
+  letter: { bodyHeight: '900px',  pageCSS: 'letter',  overflowThreshold: 42 },
+  a4:     { bodyHeight: '985px',  pageCSS: 'A4',      overflowThreshold: 47 },
+};
+
+function setPageSize(size, silent = false) {
+  if (!PAGE_SIZES[size]) return;
+  state.pageSize = size;
+  const cfg = PAGE_SIZES[size];
+
+  // Inject / update a <style> that overrides .r-body min-height and @page size
+  let styleEl = document.getElementById('page-size-style');
+  if (!styleEl) {
+    styleEl = document.createElement('style');
+    styleEl.id = 'page-size-style';
+    document.head.appendChild(styleEl);
+  }
+  styleEl.textContent = `.r-body { min-height: ${cfg.bodyHeight} !important; } @page { size: ${cfg.pageCSS}; margin: 0; }`;
+
+  // Update button active state
+  ['letter','a4'].forEach(s => {
+    const btn = document.getElementById('page-btn-' + s);
+    if (btn) btn.classList.toggle('active', s === size);
+  });
+
+  checkOverflow();
+  if (!silent) showToast(`Paper size: ${size === 'a4' ? 'A4 (210×297mm)' : 'US Letter (8.5×11in)'}`, 'info');
+}
+
+/** Score content density and pick the tightest preset that still fits one page */
+function autoFit() {
+  let score = 0;
+  state.jobs.forEach(job => {
+    score += 2.5;
+    score += job.bullets.filter(b => b.trim()).length * 1.6;
+  });
+  score += state.techSkills.length  * 0.45;
+  score += state.softSkills.length  * 0.45;
+  score += state.certs.length       * 0.6;
+  score += state.info.length        * 0.35;
+  score += 2; // education block
+
+  let pick;
+  if      (score < 16) pick = 'spacious';
+  else if (score < 28) pick = 'roomy';
+  else if (score < 55) pick = 'normal';
+  else                 pick = 'compact';
+
+  applyPreset(pick);
+  showToast(`Auto-fit: ${pick} layout (density score ${Math.round(score)})`, 'info');
+}
+
+// ===== INIT =====
+// Boot with HVAC defaults; user can switch to Plumbing via template button or radio
+loadTemplate('hvac');
+setPageSize('letter', true);
+</script>
+</body>
+</html>
