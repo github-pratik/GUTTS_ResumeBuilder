@@ -621,6 +621,7 @@
   <div class="topbar-actions">
     <button class="btn btn-ghost" onclick="loadTemplate('hvac')">Load HVAC Template</button>
     <button class="btn btn-ghost" onclick="loadTemplate('plumbing')">Load Plumbing Template</button>
+    <button class="btn btn-ghost" onclick="exportWord()">⬇ Word Doc</button>
     <button class="btn btn-accent" onclick="exportPDF()">⬇ Export PDF</button>
   </div>
 </div>
@@ -1308,6 +1309,84 @@ function exportPDF() {
   }
 
   window.print();
+}
+
+function exportWord() {
+  const name = g('f-name');
+  if (!name.trim()) {
+    showToast('Please enter a name before exporting.', 'error');
+    return;
+  }
+
+  // Resolve CSS custom property values from the live resume element
+  const paper = document.getElementById('resume-output');
+  const cs = window.getComputedStyle(paper);
+  const base    = cs.getPropertyValue('--rf-base').trim()    || '12px';
+  const sm      = cs.getPropertyValue('--rf-sm').trim()      || '11.5px';
+  const title   = cs.getPropertyValue('--rf-title').trim()   || '13px';
+  const contact = cs.getPropertyValue('--rf-contact').trim() || '13px';
+  const lh      = cs.getPropertyValue('--rf-lh').trim()      || '1.45';
+
+  const css = `
+    body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+    .r-header { background: #2D4B6E; padding: 20px 30px 18px; text-align: center; mso-background-source: auto; }
+    .r-name { font-size: 32px; color: #ffffff; letter-spacing: 2px; text-transform: uppercase; font-weight: bold; display: block; }
+    .r-contact-bar { background: #e8edf4; padding: 7px 20px; text-align: center; font-size: ${contact}; color: #444; }
+    .r-body { width: 100%; border-collapse: collapse; }
+    .r-sidebar { width: 190px; background: #EEF2F7; padding: 18px 14px; vertical-align: top; border-right: 1px solid #dde3ec; }
+    .r-main { padding: 18px 22px; vertical-align: top; }
+    .r-sidebar-section { margin-bottom: 14px; }
+    .r-sidebar-title { font-size: 8px; font-weight: 700; color: #2D4B6E; text-transform: uppercase; letter-spacing: 0.8px; border-bottom: 1px solid #dde3ec; padding-bottom: 4px; margin-bottom: 6px; }
+    .r-sidebar-item { font-size: ${base}; color: #333; margin-bottom: 2px; line-height: ${lh}; }
+    .r-edu-degree { font-size: ${base}; font-weight: 600; color: #1a2332; }
+    .r-edu-school { font-size: ${sm}; color: #555; font-style: italic; }
+    .r-edu-year   { font-size: ${sm}; color: #777; }
+    .r-section-title { font-size: 9px; font-weight: 700; letter-spacing: 1px; color: #2D4B6E; text-transform: uppercase; border-bottom: 2px solid #2D4B6E; padding-bottom: 4px; margin-bottom: 10px; margin-top: 0; }
+    .r-job { margin-bottom: 12px; }
+    .r-job-header { width: 100%; border-collapse: collapse; margin-bottom: 1px; }
+    .r-job-title { font-size: ${title}; font-weight: 700; color: #1a2332; }
+    .r-job-date  { font-size: ${base}; color: #666; font-weight: 500; text-align: right; white-space: nowrap; }
+    .r-job-sub   { font-size: ${base}; color: #555; font-style: italic; margin-bottom: 3px; }
+    .r-bullets   { margin: 0; padding: 0; list-style: none; }
+    .r-bullet    { font-size: ${base}; line-height: ${lh}; padding-left: 12px; position: relative; margin-bottom: 2px; }
+    .r-bullet::before { content: "\\2022"; position: absolute; left: 0; color: #333; }
+  `;
+
+  // Get resume inner HTML — swap flex job-header divs to table rows for Word compat
+  let inner = paper.innerHTML
+    .replace(/<div class="r-job-header">/g, '<table class="r-job-header" width="100%"><tr><td>')
+    .replace(/<div class="r-job-title">/g, '<span class="r-job-title">')
+    .replace(/<\/div>\s*<div class="r-job-date">/g, '</span></td><td align="right"><span class="r-job-date">')
+    .replace(/<\/div>\s*<\/div>\s*(<div class="r-job-sub">)/g, '</span></td></tr></table>$1')
+    // swap body grid to table
+    .replace(/<div class="r-body">/g, '<table class="r-body" width="100%"><tr>')
+    .replace(/<div class="r-sidebar">/g, '<td class="r-sidebar">')
+    .replace(/<\/div>\s*(<div class="r-main">)/g, '</td><td class="r-main">')
+    .replace(/<\/div>\s*<\/div>\s*<\/div>(\s*<\/div>)?$/, '</td></tr></table>');
+
+  const html = `<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:w="urn:schemas-microsoft-com:office:word"
+      xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="utf-8">
+<title>${escHtml(name)} Resume</title>
+<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>90</w:Zoom></w:WordDocument></xml><![endif]-->
+<style>${css}</style>
+</head>
+<body>${inner}</body>
+</html>`;
+
+  const blob = new Blob(['﻿', html], { type: 'application/msword' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `${name.trim().replace(/\s+/g, '_')}_Resume.doc`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('Word document downloaded!', 'success');
 }
 
 // ===== UTILS =====
