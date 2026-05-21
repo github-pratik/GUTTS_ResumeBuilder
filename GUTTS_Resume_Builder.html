@@ -917,6 +917,7 @@ const templates = {
       'Developed effective communication and professional soft skills for residential and job-site environments',
     ],
     job0title: 'HVACR PRE-APPRENTICESHIP',
+    summary: 'Motivated HVACR pre-apprentice with 72 hours of PHCC & DPOR accredited hands-on training in heating, cooling, and refrigeration systems. Skilled in troubleshooting, electrical safety, and equipment installation with a strong commitment to professionalism and continuous growth in the skilled trades.',
   },
   plumbing: {
     techSkills: ['Basic Troubleshooting','Hand and power tools','Electrical Safety','Copper Pipe Installation','Steel Pipe Installation','Cast Iron Pipe','CPVC & PVC','Gas Pipe Installation','PEX A Installation','Fluid Dynamics / Rough-ins','Drain-Waste-Vent Systems','Fixture Installation'],
@@ -931,6 +932,7 @@ const templates = {
       'Developed effective communication and professional soft skills for residential and job-site environments',
     ],
     job0title: 'PLUMBING PRE-APPRENTICESHIP',
+    summary: 'Motivated plumbing pre-apprentice with 72 hours of PHCC & DPOR accredited hands-on training in pipe installation, drain-waste-vent systems, and fixture setup. Experienced with copper, PVC, PEX A, and gas piping systems, with a strong foundation in safety protocols and a dedication to quality workmanship in the skilled trades.',
   }
 };
 
@@ -961,10 +963,10 @@ function loadTemplate(type) {
   const radio = document.querySelector(`input[name="prog"][value="${type}"]`);
   if (radio) radio.checked = true;
 
-  state.summary = '';
+  state.summary = t.summary || '';
   state.customSections = [];
   const summaryField = document.getElementById('f-summary');
-  if (summaryField) summaryField.value = '';
+  if (summaryField) summaryField.value = state.summary;
 
   renderTags('tech'); renderTags('soft'); renderTags('cert'); renderTags('info');
   renderJobs();
