@@ -501,6 +501,10 @@
   }
   .r-bullet::before { content: "•"; position: absolute; left: 2px; color: #2D4B6E; }
 
+  .r-summary-section { margin-bottom: var(--rf-section-gap); }
+  .r-summary { font-size: var(--rf-base); line-height: var(--rf-lh); color: #333; }
+  .r-custom-section { margin-bottom: var(--rf-job-gap); }
+
   /* ===== FIT TOOLBAR ===== */
   .fit-toolbar {
     display: flex;
@@ -668,6 +672,23 @@
       </div>
     </div>
 
+    <!-- Profile Summary -->
+    <div class="editor-section">
+      <div class="section-header" onclick="toggleSection(this)">
+        <div class="section-header-title"><div class="section-dot"></div> Profile Summary</div>
+        <div class="section-toggle">▾</div>
+      </div>
+      <div class="section-body">
+        <div class="field-group">
+          <label>Summary <span style="font-size:9px;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">(2–3 sentences)</span></label>
+          <textarea id="f-summary" rows="4"
+            placeholder="e.g. Motivated HVAC pre-apprentice with hands-on training in refrigeration, heating systems, and electrical safety. Completed 72-hour PHCC & DPOR accredited program with strong communication and customer service skills."
+            oninput="state.summary = this.value; checkOverflow(); render()"></textarea>
+          <div class="field-hint">Shown at the top of your resume. Keep it to 2–3 sentences max.</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Program -->
     <div class="editor-section">
       <div class="section-header" onclick="toggleSection(this)">
@@ -800,6 +821,22 @@
       </div>
     </div>
 
+    <!-- Custom Sections -->
+    <div class="editor-section">
+      <div class="section-header" onclick="toggleSection(this)">
+        <div class="section-header-title">
+          <div class="section-dot"></div> Custom Sections
+          <span id="custom-section-count" style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;margin-left:4px">(0/2)</span>
+        </div>
+        <div class="section-toggle">▾</div>
+      </div>
+      <div class="section-body">
+        <div id="custom-sections-container"></div>
+        <button class="add-job-btn" id="add-custom-section-btn" onclick="addCustomSection()">+ Add Section</button>
+        <div class="field-hint" style="margin-top:6px">Add sections like "Volunteer Work", "Awards", or "Projects". Max 2 sections, 5 items each.</div>
+      </div>
+    </div>
+
   </div><!-- /editor -->
 
   <!-- ===== PREVIEW ===== -->
@@ -847,17 +884,21 @@ const MAX_JOBS = 4;
 const MAX_BULLETS = 7;
 const MAX_SKILLS = 20;
 const MAX_CERTS = 8;
+const MAX_CUSTOM_SECTIONS = 2;
+const MAX_SECTION_ITEMS = 5;
 
 // ===== STATE =====
 // In-memory model; not persisted — refresh resets unless user re-enters data
 let state = {
   program: 'hvac',
   pageSize: 'letter',
+  summary: '',
   techSkills: [],
   softSkills: [],
   certs: [],
   info: [],
-  jobs: []
+  jobs: [],
+  customSections: []
 };
 
 // ===== TEMPLATES =====
@@ -920,8 +961,14 @@ function loadTemplate(type) {
   const radio = document.querySelector(`input[name="prog"][value="${type}"]`);
   if (radio) radio.checked = true;
 
+  state.summary = '';
+  state.customSections = [];
+  const summaryField = document.getElementById('f-summary');
+  if (summaryField) summaryField.value = '';
+
   renderTags('tech'); renderTags('soft'); renderTags('cert'); renderTags('info');
   renderJobs();
+  renderCustomSections();
   render();
 }
 
@@ -1202,6 +1249,97 @@ function updateBullet(jobId, idx, val) {
   render();
 }
 
+// ===== CUSTOM SECTIONS =====
+function addCustomSection() {
+  if (state.customSections.length >= MAX_CUSTOM_SECTIONS) {
+    showToast(`Max ${MAX_CUSTOM_SECTIONS} custom sections allowed.`, 'error');
+    return;
+  }
+  state.customSections.push({ id: Date.now(), title: '', items: [''] });
+  renderCustomSections();
+  render();
+}
+
+function removeCustomSection(id) {
+  state.customSections = state.customSections.filter(s => s.id !== id);
+  renderCustomSections();
+  render();
+}
+
+function addSectionItem(id) {
+  const sec = state.customSections.find(s => s.id === id);
+  if (!sec || sec.items.length >= MAX_SECTION_ITEMS) {
+    showToast(`Max ${MAX_SECTION_ITEMS} items per section.`, 'error');
+    return;
+  }
+  sec.items.push('');
+  renderCustomSections();
+  render();
+}
+
+function removeSectionItem(id, idx) {
+  const sec = state.customSections.find(s => s.id === id);
+  if (!sec) return;
+  sec.items.splice(idx, 1);
+  if (sec.items.length === 0) sec.items = [''];
+  renderCustomSections();
+  render();
+}
+
+function updateSectionTitle(id, val) {
+  const sec = state.customSections.find(s => s.id === id);
+  if (!sec) return;
+  sec.title = val;
+  // Update header label without re-rendering form
+  const blocks = document.querySelectorAll('#custom-sections-container .job-block-header span');
+  const idx = state.customSections.indexOf(sec);
+  if (blocks[idx]) blocks[idx].textContent = `Section ${idx + 1}${val ? ' — ' + val : ''}`;
+  render();
+}
+
+function updateSectionItem(id, idx, val) {
+  const sec = state.customSections.find(s => s.id === id);
+  if (sec) { sec.items[idx] = val; checkOverflow(); render(); }
+}
+
+function renderCustomSections() {
+  const container = document.getElementById('custom-sections-container');
+  if (!container) return;
+  container.innerHTML = state.customSections.map((sec, si) => `
+    <div class="job-block">
+      <div class="job-block-header">
+        <span>Section ${si + 1}${sec.title ? ' — ' + escHtml(sec.title) : ''}</span>
+        <button class="job-block-remove" onclick="removeCustomSection(${sec.id})">×</button>
+      </div>
+      <div class="job-block-body">
+        <div class="field-group">
+          <label>Section Title</label>
+          <input type="text" value="${escAttr(sec.title)}" placeholder="e.g. Volunteer Work"
+            oninput="updateSectionTitle(${sec.id}, this.value)" maxlength="60">
+        </div>
+        <div class="field-group">
+          <label>Items <span style="font-size:9px;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">(${sec.items.length}/${MAX_SECTION_ITEMS})</span></label>
+          ${sec.items.map((item, ii) => `
+            <div style="display:flex;gap:6px;margin-bottom:5px;align-items:flex-start">
+              <textarea style="flex:1;resize:vertical;min-height:36px;padding:6px 8px;font-size:12px;border:1px solid var(--border);border-radius:5px;font-family:'DM Sans',sans-serif;outline:none;color:var(--text)"
+                placeholder="Enter item..."
+                oninput="updateSectionItem(${sec.id}, ${ii}, this.value)">${escHtml(item)}</textarea>
+              <button class="job-block-remove" style="margin-top:6px" onclick="removeSectionItem(${sec.id}, ${ii})">×</button>
+            </div>
+          `).join('')}
+          <button class="add-job-btn" style="margin-top:2px" ${sec.items.length >= MAX_SECTION_ITEMS ? 'disabled' : ''}
+            onclick="addSectionItem(${sec.id})">+ Add Item</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+
+  const countEl = document.getElementById('custom-section-count');
+  if (countEl) countEl.textContent = `(${state.customSections.length}/${MAX_CUSTOM_SECTIONS})`;
+  const addBtn = document.getElementById('add-custom-section-btn');
+  if (addBtn) addBtn.disabled = state.customSections.length >= MAX_CUSTOM_SECTIONS;
+}
+
 // ===== OVERFLOW CHECK =====
 /** Heuristic line count — warns if resume likely exceeds one printed page */
 function checkOverflow() {
@@ -1210,6 +1348,11 @@ function checkOverflow() {
   state.jobs.forEach(job => {
     lineEstimate += 3; // header + company line
     lineEstimate += job.bullets.filter(b => b.trim()).length * 1.8;
+  });
+  if (state.summary.trim()) lineEstimate += 2.5;
+  state.customSections.forEach(sec => {
+    lineEstimate += 2;
+    lineEstimate += sec.items.filter(i => i.trim()).length * 1.5;
   });
 
   const threshold = (PAGE_SIZES[state.pageSize] || PAGE_SIZES.letter).overflowThreshold;
@@ -1278,8 +1421,21 @@ function render() {
         ${infoHtml ? `<div class="r-sidebar-section"><div class="r-sidebar-title">Relevant Information</div>${infoHtml}</div>` : ''}
       </div>
       <div class="r-main">
+        ${state.summary.trim() ? `
+          <div class="r-summary-section">
+            <div class="r-section-title">Profile Summary</div>
+            <div class="r-summary">${escHtml(state.summary.trim())}</div>
+          </div>` : ''}
         <div class="r-section-title">Professional Experience</div>
         ${jobsHtml || '<div style="font-size:11px;color:#999">No experience added yet.</div>'}
+        ${state.customSections.map(sec => {
+          const items = sec.items.filter(i => i.trim());
+          if (!items.length && !sec.title.trim()) return '';
+          return `<div class="r-custom-section">
+            <div class="r-section-title">${escHtml(sec.title || 'Additional Section')}</div>
+            ${items.map(item => `<div class="r-bullet">${escHtml(item)}</div>`).join('')}
+          </div>`;
+        }).join('')}
       </div>
     </div>
   `;
@@ -1535,6 +1691,11 @@ function autoFit() {
   score += state.certs.length       * 0.6;
   score += state.info.length        * 0.35;
   score += 2; // education block
+  if (state.summary.trim()) score += 2.5;
+  state.customSections.forEach(sec => {
+    score += 1.5;
+    score += sec.items.filter(i => i.trim()).length * 1.3;
+  });
 
   let pick;
   if      (score < 16) pick = 'spacious';
