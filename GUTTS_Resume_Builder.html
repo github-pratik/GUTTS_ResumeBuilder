@@ -582,7 +582,7 @@
 
   /* Print / Export — hides editor and toolbar; only `.resume-paper` prints */
   @media print {
-    .topbar, .editor, .preview-label, .fit-toolbar { display: none !important; }
+    .topbar, .editor, .preview-label, .fit-toolbar, .ats-overlay { display: none !important; }
     .workspace { display: block; height: auto; }
     .preview { background: white; padding: 0; }
     .resume-paper { box-shadow: none; width: 100%; }
@@ -607,6 +607,81 @@
   .editor::-webkit-scrollbar { width: 5px; }
   .editor::-webkit-scrollbar-track { background: transparent; }
   .editor::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+
+  /* ===== ATS CHECK MODAL ===== */
+  /* Client-side keyword matcher: paste a job posting, compare its likely keywords
+     against everything already in the resume. No network calls, no AI model. */
+  .ats-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(26,35,50,0.55);
+    z-index: 200;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 40px 20px;
+    overflow-y: auto;
+  }
+  .ats-overlay.open { display: flex; }
+  .ats-modal {
+    background: var(--panel);
+    border-radius: 10px;
+    width: 100%;
+    max-width: 620px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+    overflow: hidden;
+  }
+  .ats-modal-header {
+    background: var(--navy);
+    color: white;
+    padding: 16px 22px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .ats-modal-title {
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.6px;
+  }
+  .ats-modal-close {
+    background: transparent;
+    border: none;
+    color: rgba(255,255,255,0.7);
+    font-size: 20px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0 4px;
+  }
+  .ats-modal-close:hover { color: white; }
+  .ats-modal-body { padding: 20px 22px 24px; max-height: 72vh; overflow-y: auto; }
+  .ats-check-btn { margin-top: 6px; width: 100%; }
+  .ats-results { margin-top: 20px; }
+  .ats-score-row { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+  .ats-score-circle {
+    width: 60px; height: 60px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'DM Mono', monospace; font-weight: 600; font-size: 15px;
+    color: white; flex-shrink: 0;
+  }
+  .ats-score-label { font-size: 12px; color: var(--muted); line-height: 1.5; }
+  .ats-score-label strong { display: block; font-size: 14px; color: var(--text); }
+  .ats-group-title {
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px;
+    color: var(--muted); font-family: 'DM Mono', monospace; margin: 14px 0 8px;
+  }
+  .ats-chip-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .ats-chip { border-radius: 4px; padding: 4px 6px 4px 9px; font-size: 12px; display: flex; align-items: center; gap: 6px; }
+  .ats-chip-match { background: #e6f6ea; color: #1c6b34; border: 1px solid #b7e3c3; }
+  .ats-chip-missing { background: #fdf1e3; color: #9a5b12; border: 1px solid #f2cd9c; }
+  .ats-chip-add {
+    background: rgba(0,0,0,0.06); border: none; border-radius: 3px; cursor: pointer; color: inherit;
+    font-weight: 700; font-size: 12px; line-height: 1; padding: 2px 6px;
+  }
+  .ats-chip-add:hover { background: var(--navy); color: white; }
+  .ats-empty-note { font-size: 12px; color: var(--muted); font-style: italic; }
+  .ats-tips { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); line-height: 1.6; }
 </style>
 </head>
 <body>
@@ -625,8 +700,29 @@
   <div class="topbar-actions">
     <button class="btn btn-ghost" onclick="loadTemplate('hvac')">Load HVAC Template</button>
     <button class="btn btn-ghost" onclick="loadTemplate('plumbing')">Load Plumbing Template</button>
+    <button class="btn btn-ghost" onclick="openATSCheck()">🎯 ATS Check</button>
     <button class="btn btn-ghost" onclick="exportWord()">⬇ Word Doc</button>
     <button class="btn btn-accent" onclick="exportPDF()">⬇ Export PDF</button>
+  </div>
+</div>
+
+<!-- ATS Match Check modal: paste a job description, get a client-side keyword match.
+     Everything runs in the browser — no network calls, no AI model, no accounts. -->
+<div class="ats-overlay" id="ats-overlay" onclick="if(event.target===this) closeATSCheck()">
+  <div class="ats-modal">
+    <div class="ats-modal-header">
+      <div class="ats-modal-title">🎯 ATS MATCH CHECK</div>
+      <button class="ats-modal-close" onclick="closeATSCheck()">×</button>
+    </div>
+    <div class="ats-modal-body">
+      <div class="field-group">
+        <label>Paste the job description</label>
+        <textarea id="ats-jd-input" rows="8" placeholder="Paste the full job posting here..."></textarea>
+        <div class="field-hint">Runs entirely in your browser — nothing is uploaded or sent anywhere.</div>
+      </div>
+      <button class="btn btn-accent ats-check-btn" onclick="runATSCheck()">Check My Match</button>
+      <div class="ats-results" id="ats-results"></div>
+    </div>
   </div>
 </div>
 
@@ -972,6 +1068,175 @@ function loadTemplate(type) {
   renderJobs();
   renderCustomSections();
   render();
+}
+
+// ===== ATS CHECK =====
+// Lightweight, fully client-side keyword matcher — no API calls, no accounts, no AI model.
+// Extracts likely keywords from a pasted job description and checks whether each one
+// already appears somewhere in the resume (skills, certs, summary, job bullets).
+const ATS_STOPWORDS = new Set([
+  'the','and','or','a','an','to','of','in','on','with','for','is','are','be','as','at','by','from',
+  'that','this','will','you','your','our','we','it','its','their','they','have','has','had','do',
+  'does','not','but','if','then','so','can','may','must','should','would','could','who','what',
+  'when','where','why','how','all','any','both','each','other','some','such','no','nor','only','own',
+  'same','than','too','very','just','into','about','over','under','after','before','which','also',
+  'more','most','one','two','years','year','experience','ability','including','etc'
+]);
+
+// Common HVAC / plumbing / trade / soft-skill terms — checked first since they're the
+// most reliable signal of what a skilled-trades employer actually cares about.
+const ATS_TRADE_TERMS = [
+  'HVAC','HVACR','refrigerant','refrigeration','EPA 608','compressor','condenser','evaporator',
+  'thermostat','ductwork','ducting','furnace','heat pump','boiler','hydronic','brazing','soldering',
+  'coil cleaning','condensate','airflow','ventilation','preventive maintenance','preventative maintenance',
+  'electrical circuits','wiring','load calculation','refrigeration cycle',
+  'plumbing','pipefitting','pipe fitting','copper pipe','PVC','CPVC','PEX','cast iron','sweating pipes',
+  'drain cleaning','DWV','drain-waste-vent','fixture installation','water heater','backflow','gas line',
+  'gas pipe','rough-in','hydro jetting','sewer line','leak detection','plumbing code','sump pump',
+  'troubleshooting','blueprint reading','schematics','hand tools','power tools','OSHA','PPE',
+  'safety protocols','safety-conscious','confined space','ladder safety','forklift','drivers license',
+  'teamwork','team player','communication','time management','problem solving','attention to detail',
+  'customer service','work ethic','reliability','punctuality','multitasking','flexibility','adaptability',
+  'physical stamina','licensed','certified','apprenticeship','entry level','crisis management',
+  'strategic planning','eagerness to learn'
+];
+
+/** Lowercase + collapse to space-separated alphanumerics, padded, for safe substring matching */
+function atsNormalize(s) {
+  return ' ' + String(s).toLowerCase().replace(/'/g, '').replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim() + ' ';
+}
+
+/** Does the normalized text contain this term (with light singular/plural handling)? */
+function atsContains(normText, term) {
+  if (normText.includes(atsNormalize(term))) return true;
+  const words = term.trim().split(/\s+/);
+  const last = words[words.length - 1];
+  const variant = last.endsWith('s')
+    ? words.slice(0, -1).concat(last.slice(0, -1)).join(' ')
+    : words.slice(0, -1).concat(last + 's').join(' ');
+  return normText.includes(atsNormalize(variant));
+}
+
+/** Flatten every piece of resume content into one string for keyword matching */
+function atsGetResumeText() {
+  const parts = [
+    state.summary,
+    ...state.techSkills, ...state.softSkills, ...state.certs, ...state.info,
+    ...state.jobs.flatMap(j => [j.title, j.company, ...j.bullets]),
+    ...state.customSections.flatMap(s => [s.title, ...s.items])
+  ];
+  return parts.join(' ');
+}
+
+/** Pull candidate keywords out of a pasted job description: dictionary hits + frequent words */
+function atsExtractKeywords(jdText) {
+  const normJd = atsNormalize(jdText);
+  const found = [];
+  const seen = new Set();
+
+  ATS_TRADE_TERMS.forEach(term => {
+    if (atsContains(normJd, term) && !seen.has(term.toLowerCase())) {
+      found.push(term);
+      seen.add(term.toLowerCase());
+    }
+  });
+
+  const words = jdText.replace(/[^a-zA-Z0-9&/\-']+/g, ' ').split(/\s+/).filter(Boolean);
+  const freq = {};
+  words.forEach(w => {
+    const clean = w.replace(/^['-]+|['-]+$/g, '');
+    const lower = clean.toLowerCase();
+    if (clean.length < 3 || ATS_STOPWORDS.has(lower)) return;
+    freq[clean] = (freq[clean] || 0) + 1;
+  });
+  Object.keys(freq)
+    .filter(w => (freq[w] >= 2 || /^[A-Z]{2,6}$/.test(w)) && !seen.has(w.toLowerCase()))
+    .sort((a, b) => freq[b] - freq[a])
+    .slice(0, 12)
+    .forEach(w => { found.push(w); seen.add(w.toLowerCase()); });
+
+  return found.slice(0, 25);
+}
+
+let atsLastKeywords = [];
+let atsMissingTerms = [];
+
+function openATSCheck() {
+  document.getElementById('ats-overlay').classList.add('open');
+  document.getElementById('ats-jd-input').focus();
+}
+function closeATSCheck() {
+  document.getElementById('ats-overlay').classList.remove('open');
+}
+
+function runATSCheck() {
+  const jd = document.getElementById('ats-jd-input').value.trim();
+  if (!jd) {
+    showToast('Paste a job description first.', 'warn');
+    return;
+  }
+  if (jd.length < 40) {
+    showToast('That looks too short to be a full job description — results may be limited.', 'warn');
+  }
+  atsLastKeywords = atsExtractKeywords(jd);
+  atsRenderResults();
+}
+
+/** Recompute matched/missing against the CURRENT resume state and repaint the results panel */
+function atsRenderResults() {
+  const resultsEl = document.getElementById('ats-results');
+  if (!atsLastKeywords.length) {
+    resultsEl.innerHTML = '<div class="ats-empty-note">No clear keywords found in that text — try pasting the full job posting.</div>';
+    return;
+  }
+
+  const normResume = atsNormalize(atsGetResumeText());
+  const matched = [];
+  const missing = [];
+  atsLastKeywords.forEach(term => (atsContains(normResume, term) ? matched : missing).push(term));
+  atsMissingTerms = missing;
+
+  const score = Math.round((matched.length / atsLastKeywords.length) * 100);
+  const color = score >= 70 ? '#1c9950' : score >= 40 ? '#e8892b' : '#c0392b';
+  const label = score >= 70 ? 'Strong Match' : score >= 40 ? 'Partial Match' : 'Needs Work';
+
+  const matchChips = matched.map(t => `<div class="ats-chip ats-chip-match">✓ ${escHtml(t)}</div>`).join('')
+    || '<div class="ats-empty-note">Nothing matched yet.</div>';
+
+  const missingChips = missing.map((t, i) =>
+    `<div class="ats-chip ats-chip-missing">${escHtml(t)}<button class="ats-chip-add" title="Add to Technical Skills" onclick="atsAddKeyword(${i})">+</button></div>`
+  ).join('') || '<div class="ats-empty-note">Nothing missing — great coverage!</div>';
+
+  resultsEl.innerHTML = `
+    <div class="ats-score-row">
+      <div class="ats-score-circle" style="background:${color}">${score}%</div>
+      <div class="ats-score-label"><strong>${label}</strong>${matched.length} of ${atsLastKeywords.length} keywords from this posting appear on your resume.</div>
+    </div>
+    <div class="ats-group-title">✓ Found on your resume (${matched.length})</div>
+    <div class="ats-chip-list">${matchChips}</div>
+    <div class="ats-group-title">+ Consider adding (${missing.length})</div>
+    <div class="ats-chip-list">${missingChips}</div>
+    <div class="ats-tips">This is a keyword match, not a judgment on quality — only add a skill if it's actually true for you. Click "+" to drop a missing keyword into Technical Skills, then reword it or move it to Soft Skills as needed.</div>
+  `;
+}
+
+/** Add a missing keyword straight into Technical Skills, then refresh the check */
+function atsAddKeyword(idx) {
+  const term = atsMissingTerms[idx];
+  if (term === undefined) return;
+  if (state.techSkills.some(item => item.toLowerCase() === term.toLowerCase())) {
+    showToast(`"${term}" is already on your resume.`, 'warn');
+    return;
+  }
+  if (state.techSkills.length >= MAX_SKILLS) {
+    showToast(`Maximum ${MAX_SKILLS} technical skills reached. Remove one first.`, 'warn');
+    return;
+  }
+  state.techSkills.push(term);
+  renderTags('tech');
+  render();
+  atsRenderResults();
+  showToast(`Added "${term}" to Technical Skills.`, 'info');
 }
 
 // ===== TOAST =====
