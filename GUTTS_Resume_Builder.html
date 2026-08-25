@@ -700,9 +700,36 @@
   <div class="topbar-actions">
     <button class="btn btn-ghost" onclick="loadTemplate('hvac')">Load HVAC Template</button>
     <button class="btn btn-ghost" onclick="loadTemplate('plumbing')">Load Plumbing Template</button>
+    <button class="btn btn-ghost" onclick="openImportResume()">📥 Import Resume</button>
     <button class="btn btn-ghost" onclick="openATSCheck()">🎯 ATS Check</button>
     <button class="btn btn-ghost" onclick="exportWord()">⬇ Word Doc</button>
     <button class="btn btn-accent" onclick="exportPDF()">⬇ Export PDF</button>
+  </div>
+</div>
+
+<!-- Import Resume modal: paste an old resume's text, heuristically fill the form.
+     Reuses the .ats-* modal/chip styles for visual consistency. -->
+<div class="ats-overlay" id="import-overlay" onclick="if(event.target===this) closeImportResume()">
+  <div class="ats-modal">
+    <div class="ats-modal-header">
+      <div class="ats-modal-title">📥 IMPORT OLD RESUME</div>
+      <button class="ats-modal-close" onclick="closeImportResume()">×</button>
+    </div>
+    <div class="ats-modal-body">
+      <div class="field-hint" style="margin-bottom:10px">
+        Open the student's old resume (Word doc or PDF), select all the text (Ctrl/Cmd+A), copy it,
+        and paste it below. Works best on resumes this tool generated (files named like
+        <em>..._GUTTS_HVAC_Resume.docx</em> or <em>..._GUTTS_Plumber_Resume.docx</em>) — it does a
+        best-effort parse on other formats too. <strong>This overwrites the current form, and you should
+        always review the filled-in fields before exporting</strong> — import into a fresh session per student.
+      </div>
+      <div class="field-group">
+        <label>Pasted resume text</label>
+        <textarea id="import-text-input" rows="10" placeholder="Paste the old resume's text here..."></textarea>
+      </div>
+      <button class="btn btn-accent ats-check-btn" onclick="runImportResume()">Parse &amp; Fill Form</button>
+      <div class="ats-results" id="import-results"></div>
+    </div>
   </div>
 </div>
 
@@ -1237,6 +1264,245 @@ function atsAddKeyword(idx) {
   render();
   atsRenderResults();
   showToast(`Added "${term}" to Technical Skills.`, 'info');
+}
+
+// ===== IMPORT RESUME =====
+// Paste-text importer: staff copy/paste an old resume's text (from Word or PDF) and this
+// heuristically segments it into sections and fills the form. Tuned to resumes this tool
+// itself produced (section headers below) but falls back reasonably on other formats.
+// Nothing is uploaded anywhere — parsing happens entirely in the browser.
+const IMPORT_SECTION_PATTERNS = [
+  { key: 'certs',      re: /^certificat(es?|ions?)(\s*&?\s*accreditations?)?$/i },
+  { key: 'education',  re: /^education$/i },
+  { key: 'techSkills', re: /^technical\s*skills?$/i },
+  { key: 'softSkills', re: /^soft\s*skills?$/i },
+  { key: 'info',       re: /^relevant\s*(information|info)$/i },
+  { key: 'summary',    re: /^(profile\s*summary|professional\s*summary|summary|objective)$/i },
+  { key: 'experience', re: /^(professional\s*experience|work\s*experience|experience|employment(\s*history)?)$/i },
+];
+
+function importDetectHeader(line) {
+  const clean = line.replace(/[:\-–—]+$/, '').trim();
+  const hit = IMPORT_SECTION_PATTERNS.find(p => p.re.test(clean));
+  return hit ? hit.key : null;
+}
+
+/** Strip a leading bullet glyph (•, -, *, ‣, ●, ▪ ...) from a pasted line */
+function importStripBullet(line) {
+  return line.replace(/^[•\-*•▪●‣⁃‣▪●]+\s*/, '').trim();
+}
+
+/** Segment raw pasted text into a header block + named sections, using known headers as anchors */
+function importSegment(text) {
+  const lines = text.split(/\r?\n/).map(l => l.trim());
+  const sections = { certs: [], education: [], techSkills: [], softSkills: [], info: [], summary: [], experience: [] };
+  const headerLines = [];
+  let current = null;
+  lines.forEach(line => {
+    if (!line) return;
+    const key = importDetectHeader(line);
+    if (key) { current = key; return; }
+    (current ? sections[current] : headerLines).push(line);
+  });
+  return { headerLines, sections };
+}
+
+/** Parse pasted resume text and return {values, filled, missing} — does not touch the DOM */
+function importParseResume(text) {
+  const { headerLines, sections } = importSegment(text);
+  const filled = [];
+  const missing = [];
+  const note = (label, ok) => (ok ? filled : missing).push(label);
+
+  const emailMatch = text.match(/[\w.+-]+@[\w-]+\.[\w-]+/);
+  const phoneMatch = text.match(/\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/);
+  const cityStateMatch = headerLines.join(' | ').match(/([A-Za-z][A-Za-z .'-]+),\s*([A-Z]{2})\b/);
+
+  // Name: first header-block line that isn't the placeholder, contact info, or a stray digit line
+  let name = '';
+  for (const l of headerLines) {
+    const t = l.replace(/\s*\|.*$/, '').trim();
+    if (!t || /^student name$/i.test(t)) continue;
+    if (emailMatch && l.includes(emailMatch[0])) continue;
+    if (phoneMatch && l.includes(phoneMatch[0])) continue;
+    if (/@/.test(t) || /^\d/.test(t)) continue;
+    name = t;
+    break;
+  }
+  note('Name', !!name);
+  note('Email', !!emailMatch);
+  note('Phone', !!phoneMatch);
+  note('City / State', !!cityStateMatch);
+
+  const certs = sections.certs.map(importStripBullet).filter(Boolean).slice(0, MAX_CERTS);
+  note('Certifications', certs.length > 0);
+
+  // Education: pull a 4-digit year and a "City, ST" line out; whatever's left is degree/school in order
+  const eduLines = sections.education.map(importStripBullet).filter(Boolean);
+  let eduYear = '', eduCityState = '';
+  const eduRest = [];
+  eduLines.forEach(l => {
+    const yr = l.match(/\b(19|20)\d{2}\b/);
+    const cs = l.match(/([A-Za-z][A-Za-z .'-]+),\s*([A-Z]{2})\b/);
+    if (yr && l.trim() === yr[0]) eduYear = yr[0];
+    else if (cs && l.trim().length < 40 && !eduCityState) eduCityState = l.trim();
+    else eduRest.push(l);
+  });
+  const eduDegree = eduRest[0] || '';
+  const eduSchool = eduRest[1] || '';
+  note('Education', !!(eduDegree || eduSchool || eduYear));
+
+  const splitSkills = lines => {
+    let items = lines.map(importStripBullet).filter(Boolean);
+    if (items.length <= 1 && items[0] && items[0].includes(',')) {
+      items = items[0].split(',').map(s => s.trim()).filter(Boolean);
+    }
+    const seen = new Set();
+    return items.filter(s => {
+      const k = s.toLowerCase();
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    }).slice(0, MAX_SKILLS);
+  };
+  const techSkills = splitSkills(sections.techSkills);
+  const softSkills = splitSkills(sections.softSkills);
+  note('Technical Skills', techSkills.length > 0);
+  note('Soft Skills', softSkills.length > 0);
+
+  const info = sections.info.map(importStripBullet).filter(Boolean).slice(0, 10);
+  note('Relevant Info', info.length > 0);
+
+  const summary = sections.summary.join(' ').replace(/\s+/g, ' ').trim();
+  note('Profile Summary', !!summary);
+
+  // Program guess: whichever trade is mentioned more often wins
+  const hvacHits = (text.match(/\bhvac|hvacr|refriger/gi) || []).length;
+  const plumbHits = (text.match(/\bplumb/gi) || []).length;
+  const program = hvacHits === plumbHits ? '' : (hvacHits > plumbHits ? 'hvac' : 'plumbing');
+
+  // Experience → Job 1: title (+ inline date), then a "Company | Location" line, then bullets
+  const expLines = sections.experience.filter(Boolean);
+  const dateRe = /((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*\d{4}|\b\d{4}\b)(\s*[–\-toTO]+\s*(present|current|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*\d{4}|\b\d{4}\b))?/i;
+  let jobTitle = '', jobDate = '', jobCompany = '', jobLocation = '';
+  const bulletLines = [];
+  let idx = 0;
+  if (expLines.length) {
+    const first = expLines[0];
+    const dm = first.match(dateRe);
+    if (dm && dm.index > 0) {
+      jobTitle = first.slice(0, dm.index).trim();
+      jobDate = dm[0].trim();
+    } else {
+      jobTitle = first.trim();
+    }
+    idx = 1;
+    if (!jobDate && expLines[1] && dateRe.test(expLines[1]) && expLines[1].replace(dateRe, '').trim().length < 4) {
+      jobDate = expLines[1].match(dateRe)[0].trim();
+      idx = 2;
+    }
+    if (expLines[idx] && !/^[•\-*•▪●‣⁃‣▪●]/.test(expLines[idx]) && !bulletLines.length) {
+      const compLine = expLines[idx];
+      if (compLine.includes('|')) {
+        const [c, l] = compLine.split('|');
+        jobCompany = (c || '').trim();
+        jobLocation = (l || '').trim();
+      } else {
+        jobCompany = compLine.trim();
+      }
+      idx += 1;
+    }
+    for (; idx < expLines.length; idx++) {
+      const b = importStripBullet(expLines[idx]);
+      if (b) bulletLines.push(b);
+    }
+  }
+  note('Work Experience', !!(jobTitle || bulletLines.length));
+
+  return {
+    values: {
+      name, email: emailMatch ? emailMatch[0] : '', phone: phoneMatch ? phoneMatch[0] : '',
+      city: cityStateMatch ? cityStateMatch[1].trim() : '', state: cityStateMatch ? cityStateMatch[2] : '',
+      eduDegree, eduSchool, eduCityState, eduYear, certs, techSkills, softSkills, info, summary, program,
+      jobTitle, jobDate, jobCompany, jobLocation, bullets: bulletLines.slice(0, MAX_BULLETS),
+    },
+    filled, missing,
+  };
+}
+
+function openImportResume() {
+  document.getElementById('import-overlay').classList.add('open');
+  document.getElementById('import-text-input').focus();
+}
+function closeImportResume() {
+  document.getElementById('import-overlay').classList.remove('open');
+}
+
+/** Apply parsed values onto state + the DOM form fields, mirroring what loadTemplate() does */
+function importApplyValues(v) {
+  const set = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+  set('f-name', v.name);
+  set('f-email', v.email);
+  if (v.phone) { const el = document.getElementById('f-phone'); if (el) { el.value = v.phone; formatPhone(el); } }
+  set('f-city', v.city);
+  set('f-state', v.state);
+  set('f-edu-degree', v.eduDegree);
+  set('f-edu-school', v.eduSchool);
+  set('f-edu-city', v.eduCityState);
+  set('f-edu-year', v.eduYear);
+  set('f-summary', v.summary);
+  state.summary = v.summary || state.summary;
+
+  if (v.program) {
+    state.program = v.program;
+    const radio = document.querySelector(`input[name="prog"][value="${v.program}"]`);
+    if (radio) radio.checked = true;
+  }
+
+  if (v.certs.length) state.certs = v.certs;
+  if (v.techSkills.length) state.techSkills = v.techSkills;
+  if (v.softSkills.length) state.softSkills = v.softSkills;
+  if (v.info.length) state.info = v.info;
+
+  if (v.jobTitle || v.bullets.length || v.jobCompany) {
+    const job = state.jobs[0] || { id: Date.now(), title: '', company: '', location: '', bullets: [''] };
+    job.title = v.jobTitle || job.title;
+    job.company = v.jobCompany || job.company;
+    job.location = v.jobLocation || job.location;
+    if (v.bullets.length) job.bullets = v.bullets;
+    if (state.jobs.length) state.jobs[0] = job; else state.jobs = [job];
+  }
+  if (v.jobDate) set('f-grad-date', v.jobDate.toUpperCase());
+
+  renderTags('tech'); renderTags('soft'); renderTags('cert'); renderTags('info');
+  renderJobs();
+  checkOverflow();
+  render();
+}
+
+function runImportResume() {
+  const text = document.getElementById('import-text-input').value;
+  if (!text.trim()) {
+    showToast('Paste a resume\'s text first.', 'warn');
+    return;
+  }
+  const { values, filled, missing } = importParseResume(text);
+  importApplyValues(values);
+
+  const filledChips = filled.map(f => `<div class="ats-chip ats-chip-match">✓ ${escHtml(f)}</div>`).join('')
+    || '<div class="ats-empty-note">Nothing could be filled from that text.</div>';
+  const missingChips = missing.map(f => `<div class="ats-chip ats-chip-missing">${escHtml(f)}</div>`).join('')
+    || '<div class="ats-empty-note">Everything was found.</div>';
+
+  document.getElementById('import-results').innerHTML = `
+    <div class="ats-group-title">✓ Filled in (${filled.length})</div>
+    <div class="ats-chip-list">${filledChips}</div>
+    <div class="ats-group-title">⚠ Not found — fill in manually (${missing.length})</div>
+    <div class="ats-chip-list">${missingChips}</div>
+    <div class="ats-tips">The form behind this window has been updated. Close this and review every
+      section carefully — especially Work Experience and Education, which are the easiest to parse wrong.</div>
+  `;
+  showToast('Resume parsed — review the filled-in fields before exporting.', 'info');
 }
 
 // ===== TOAST =====
