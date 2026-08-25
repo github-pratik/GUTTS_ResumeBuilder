@@ -718,10 +718,13 @@
     <div class="ats-modal-body">
       <div class="field-hint" style="margin-bottom:10px">
         Open the student's old resume (Word doc or PDF), select all the text (Ctrl/Cmd+A), copy it,
-        and paste it below. Works best on resumes this tool generated (files named like
-        <em>..._GUTTS_HVAC_Resume.docx</em> or <em>..._GUTTS_Plumber_Resume.docx</em>) — it does a
-        best-effort parse on other formats too. <strong>This overwrites the current form, and you should
-        always review the filled-in fields before exporting</strong> — import into a fresh session per student.
+        and paste it below. This pulls in only the <strong>per-student</strong> pieces — name, education,
+        relevant info, any extra skills, and real additional work history — and adds them on top of
+        whichever HVAC/Plumbing template is loaded (auto-detected from the text when possible).
+        <strong>Profile Summary, Certifications, base Technical/Soft Skills, and the GUTTS pre-apprenticeship
+        job entry always stay from the template</strong> — they're common to every resume in a program, not
+        pulled from the old resume. Phone/email always stay GUTTS' own too.
+        Import into a fresh session per student, and always review before exporting.
       </div>
       <div class="field-group">
         <label>Pasted resume text</label>
@@ -828,7 +831,7 @@
         </div>
         <div class="field-group">
           <label>Graduation Month/Year</label>
-          <input type="text" id="f-grad-date" placeholder="MAR 2026" maxlength="10" oninput="render()">
+          <input type="text" id="f-grad-date" placeholder="e.g. AUG 2026" maxlength="10" oninput="render()">
         </div>
       </div>
     </div>
@@ -1003,12 +1006,29 @@
 
 // ===== LIMITS =====
 // Caps keep content on a single printed page
-const MAX_JOBS = 4;
+const MAX_JOBS = 7;
 const MAX_BULLETS = 7;
 const MAX_SKILLS = 20;
 const MAX_CERTS = 8;
 const MAX_CUSTOM_SECTIONS = 2;
 const MAX_SECTION_ITEMS = 5;
+
+// ===== GUTTS DEFAULTS =====
+// Every resume ships GUTTS' own contact info, not the student's personal phone/email —
+// GUTTS is the first point of contact during placement. City/state default to GUTTS'
+// own location (Fairfax, VA) when a student's address isn't known.
+const GUTTS_DEFAULT_PHONE = '844-464-8887';
+const GUTTS_DEFAULT_EMAIL = 'operations@gutts.tech';
+const GUTTS_DEFAULT_CITY  = 'Fairfax';
+const GUTTS_DEFAULT_STATE = 'VA';
+
+/** Current month/year as "AUG 2026" — used as the graduation-date fallback so it never
+ *  goes stale (replaces what used to be a hardcoded, slowly-outdated placeholder). */
+function currentMonthYear() {
+  const MONTHS = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  const d = new Date();
+  return `${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
 
 // ===== STATE =====
 // In-memory model; not persisted — refresh resets unless user re-enters data
@@ -1074,7 +1094,7 @@ function loadTemplate(type) {
       title: t.job0title,
       company: 'Ground Up Trade & Talent Solutions',
       location: 'Fairfax, VA',
-      date: 'MAR 2026',
+      date: currentMonthYear(),
       bullets: [...t.job0bullets]
     }];
   } else {
@@ -1090,6 +1110,18 @@ function loadTemplate(type) {
   state.customSections = [];
   const summaryField = document.getElementById('f-summary');
   if (summaryField) summaryField.value = state.summary;
+
+  // GUTTS' own contact info + location default on every resume — never the student's
+  // personal phone/email. City/state only fill in if still empty (Import Resume may
+  // set a student's real city/state on top of this afterward).
+  const phoneField = document.getElementById('f-phone');
+  if (phoneField && !phoneField.value) { phoneField.value = GUTTS_DEFAULT_PHONE; formatPhone(phoneField); }
+  const emailField = document.getElementById('f-email');
+  if (emailField && !emailField.value) emailField.value = GUTTS_DEFAULT_EMAIL;
+  const cityField = document.getElementById('f-city');
+  if (cityField && !cityField.value) cityField.value = GUTTS_DEFAULT_CITY;
+  const stateField = document.getElementById('f-state');
+  if (stateField && !stateField.value) stateField.value = GUTTS_DEFAULT_STATE;
 
   renderTags('tech'); renderTags('soft'); renderTags('cert'); renderTags('info');
   renderJobs();
@@ -1268,17 +1300,21 @@ function atsAddKeyword(idx) {
 
 // ===== IMPORT RESUME =====
 // Paste-text importer: staff copy/paste an old resume's text (from Word or PDF) and this
-// heuristically segments it into sections and fills the form. Tuned to resumes this tool
-// itself produced (section headers below) but falls back reasonably on other formats.
+// pulls out ONLY the per-student pieces — name, education, relevant info, extra skills,
+// and any additional real jobs beyond the standard GUTTS pre-apprenticeship entry.
+// Profile Summary, Certifications, base Technical/Soft Skills, and Job 1 (the GUTTS
+// entry) always come from the HVAC/Plumbing template, never the pasted resume — those
+// are common to every student in a program, by design. Contact info (phone/email) is
+// always GUTTS' own (see GUTTS_DEFAULT_*), never the student's personal info.
 // Nothing is uploaded anywhere — parsing happens entirely in the browser.
 const IMPORT_SECTION_PATTERNS = [
-  { key: 'certs',      re: /^certificat(es?|ions?)(\s*&?\s*accreditations?)?$/i },
-  { key: 'education',  re: /^education$/i },
-  { key: 'techSkills', re: /^technical\s*skills?$/i },
+  { key: 'education',  re: /^education(\s*(&|and)\s*training)?$/i },
+  { key: 'techSkills', re: /^(core|technical|key)?\s*skills?$/i },
   { key: 'softSkills', re: /^soft\s*skills?$/i },
-  { key: 'info',       re: /^relevant\s*(information|info)$/i },
-  { key: 'summary',    re: /^(profile\s*summary|professional\s*summary|summary|objective)$/i },
+  { key: 'info',       re: /^(relevant|additional)\s*(information|info)$/i },
   { key: 'experience', re: /^(professional\s*experience|work\s*experience|experience|employment(\s*history)?)$/i },
+  // Certifications and Summary are intentionally NOT captured here — those stay tied
+  // to the HVAC/Plumbing template and are never pulled from an individual's old resume.
 ];
 
 function importDetectHeader(line) {
@@ -1289,13 +1325,13 @@ function importDetectHeader(line) {
 
 /** Strip a leading bullet glyph (•, -, *, ‣, ●, ▪ ...) from a pasted line */
 function importStripBullet(line) {
-  return line.replace(/^[•\-*•▪●‣⁃‣▪●]+\s*/, '').trim();
+  return line.replace(/^[•\-*▪●‣⁃]+\s*/, '').trim();
 }
 
 /** Segment raw pasted text into a header block + named sections, using known headers as anchors */
 function importSegment(text) {
   const lines = text.split(/\r?\n/).map(l => l.trim());
-  const sections = { certs: [], education: [], techSkills: [], softSkills: [], info: [], summary: [], experience: [] };
+  const sections = { education: [], techSkills: [], softSkills: [], info: [], experience: [] };
   const headerLines = [];
   let current = null;
   lines.forEach(line => {
@@ -1307,7 +1343,72 @@ function importSegment(text) {
   return { headerLines, sections };
 }
 
-/** Parse pasted resume text and return {values, filled, missing} — does not touch the DOM */
+/** Split one skills line into items — handles "Category: a, b, c" and plain "a, b, c" */
+function importSplitSkillLine(line) {
+  const stripped = importStripBullet(line).replace(/^[A-Za-z][A-Za-z &/]{0,28}:\s*/, '');
+  return stripped.split(',').map(s => s.trim()).filter(Boolean);
+}
+
+/** Collect + dedupe skill items out of a block of lines */
+function importCollectSkills(lines) {
+  const items = [];
+  lines.forEach(l => importSplitSkillLine(l).forEach(s => items.push(s)));
+  const seen = new Set();
+  return items.filter(s => {
+    const k = s.toLowerCase();
+    if (!s || seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
+/** Layer new skills onto an existing list — deduped case-insensitively, capped at MAX_SKILLS */
+function importMergeSkills(base, extra) {
+  const seen = new Set(base.map(s => s.toLowerCase()));
+  const merged = [...base];
+  extra.forEach(s => {
+    const k = s.toLowerCase();
+    if (!seen.has(k) && merged.length < MAX_SKILLS) { merged.push(s); seen.add(k); }
+  });
+  return merged;
+}
+
+const IMPORT_DATE_RE = /((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*\d{4}|\b\d{4}\b)(\s*[–\-]+\s*|\s+to\s+)?(present|current|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*\d{4}|\b\d{4}\b)?/i;
+
+/** Split a "Professional Experience" block into individual jobs — each job's header line
+ *  contains a date/date-range (e.g. "Title | Location | Jan 2020 – Present"); everything
+ *  after a header line, up to the next one, becomes that job's bullets. */
+function importParseJobHistory(expLines) {
+  const jobs = [];
+  let current = null;
+  expLines.forEach(raw => {
+    const line = raw.trim();
+    if (!line) return;
+    if (IMPORT_DATE_RE.test(line) && !/^[•\-*▪●‣⁃]/.test(line)) {
+      if (current) jobs.push(current);
+      current = { raw: line, bullets: [] };
+    } else if (current) {
+      const b = importStripBullet(line);
+      if (b) current.bullets.push(b);
+    }
+  });
+  if (current) jobs.push(current);
+
+  return jobs.map(j => {
+    const dm = j.raw.match(IMPORT_DATE_RE);
+    const date = dm ? dm[0].trim() : '';
+    const rest = dm ? (j.raw.slice(0, dm.index) + j.raw.slice(dm.index + dm[0].length)) : j.raw;
+    const segs = rest.split('|').map(s => s.trim()).filter(Boolean);
+    let title = segs[0] || '';
+    const location = segs[1] || '';
+    let company = '';
+    const dashSplit = title.split(/\s+[–—-]\s+/);
+    if (dashSplit.length === 2) { title = dashSplit[0].trim(); company = dashSplit[1].trim(); }
+    return { title, company, location, date, bullets: j.bullets.slice(0, MAX_BULLETS) };
+  });
+}
+
+/** Parse pasted resume text and return {values, filled, missing, ignoredContact} — does not touch the DOM */
 function importParseResume(text) {
   const { headerLines, sections } = importSegment(text);
   const filled = [];
@@ -1330,12 +1431,7 @@ function importParseResume(text) {
     break;
   }
   note('Name', !!name);
-  note('Email', !!emailMatch);
-  note('Phone', !!phoneMatch);
   note('City / State', !!cityStateMatch);
-
-  const certs = sections.certs.map(importStripBullet).filter(Boolean).slice(0, MAX_CERTS);
-  note('Certifications', certs.length > 0);
 
   // Education: pull a 4-digit year and a "City, ST" line out; whatever's left is degree/school in order
   const eduLines = sections.education.map(importStripBullet).filter(Boolean);
@@ -1352,81 +1448,30 @@ function importParseResume(text) {
   const eduSchool = eduRest[1] || '';
   note('Education', !!(eduDegree || eduSchool || eduYear));
 
-  const splitSkills = lines => {
-    let items = lines.map(importStripBullet).filter(Boolean);
-    if (items.length <= 1 && items[0] && items[0].includes(',')) {
-      items = items[0].split(',').map(s => s.trim()).filter(Boolean);
-    }
-    const seen = new Set();
-    return items.filter(s => {
-      const k = s.toLowerCase();
-      if (seen.has(k)) return false;
-      seen.add(k);
-      return true;
-    }).slice(0, MAX_SKILLS);
-  };
-  const techSkills = splitSkills(sections.techSkills);
-  const softSkills = splitSkills(sections.softSkills);
-  note('Technical Skills', techSkills.length > 0);
-  note('Soft Skills', softSkills.length > 0);
+  const extraTechSkills = importCollectSkills(sections.techSkills);
+  const extraSoftSkills = importCollectSkills(sections.softSkills);
+  note('Extra Technical Skills', extraTechSkills.length > 0);
+  note('Extra Soft Skills', extraSoftSkills.length > 0);
 
   const info = sections.info.map(importStripBullet).filter(Boolean).slice(0, 10);
   note('Relevant Info', info.length > 0);
-
-  const summary = sections.summary.join(' ').replace(/\s+/g, ' ').trim();
-  note('Profile Summary', !!summary);
 
   // Program guess: whichever trade is mentioned more often wins
   const hvacHits = (text.match(/\bhvac|hvacr|refriger/gi) || []).length;
   const plumbHits = (text.match(/\bplumb/gi) || []).length;
   const program = hvacHits === plumbHits ? '' : (hvacHits > plumbHits ? 'hvac' : 'plumbing');
+  note('Program Detected', !!program);
 
-  // Experience → Job 1: title (+ inline date), then a "Company | Location" line, then bullets
-  const expLines = sections.experience.filter(Boolean);
-  const dateRe = /((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*\d{4}|\b\d{4}\b)(\s*[–\-toTO]+\s*(present|current|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*\d{4}|\b\d{4}\b))?/i;
-  let jobTitle = '', jobDate = '', jobCompany = '', jobLocation = '';
-  const bulletLines = [];
-  let idx = 0;
-  if (expLines.length) {
-    const first = expLines[0];
-    const dm = first.match(dateRe);
-    if (dm && dm.index > 0) {
-      jobTitle = first.slice(0, dm.index).trim();
-      jobDate = dm[0].trim();
-    } else {
-      jobTitle = first.trim();
-    }
-    idx = 1;
-    if (!jobDate && expLines[1] && dateRe.test(expLines[1]) && expLines[1].replace(dateRe, '').trim().length < 4) {
-      jobDate = expLines[1].match(dateRe)[0].trim();
-      idx = 2;
-    }
-    if (expLines[idx] && !/^[•\-*•▪●‣⁃‣▪●]/.test(expLines[idx]) && !bulletLines.length) {
-      const compLine = expLines[idx];
-      if (compLine.includes('|')) {
-        const [c, l] = compLine.split('|');
-        jobCompany = (c || '').trim();
-        jobLocation = (l || '').trim();
-      } else {
-        jobCompany = compLine.trim();
-      }
-      idx += 1;
-    }
-    for (; idx < expLines.length; idx++) {
-      const b = importStripBullet(expLines[idx]);
-      if (b) bulletLines.push(b);
-    }
-  }
-  note('Work Experience', !!(jobTitle || bulletLines.length));
+  const jobs = importParseJobHistory(sections.experience);
+  note('Additional Work Experience', jobs.length > 0);
 
   return {
     values: {
-      name, email: emailMatch ? emailMatch[0] : '', phone: phoneMatch ? phoneMatch[0] : '',
-      city: cityStateMatch ? cityStateMatch[1].trim() : '', state: cityStateMatch ? cityStateMatch[2] : '',
-      eduDegree, eduSchool, eduCityState, eduYear, certs, techSkills, softSkills, info, summary, program,
-      jobTitle, jobDate, jobCompany, jobLocation, bullets: bulletLines.slice(0, MAX_BULLETS),
+      name, city: cityStateMatch ? cityStateMatch[1].trim() : '', state: cityStateMatch ? cityStateMatch[2] : '',
+      eduDegree, eduSchool, eduCityState, eduYear, info, extraTechSkills, extraSoftSkills, program, jobs,
     },
     filled, missing,
+    ignoredContact: !!(emailMatch || phoneMatch),
   };
 }
 
@@ -1438,41 +1483,35 @@ function closeImportResume() {
   document.getElementById('import-overlay').classList.remove('open');
 }
 
-/** Apply parsed values onto state + the DOM form fields, mirroring what loadTemplate() does */
+/** Layer parsed dynamic values on top of whatever HVAC/Plumbing template is loaded.
+ *  Never touches Profile Summary, Certifications, base skills, phone, or email —
+ *  those stay common/GUTTS-owned. Job 1 (the GUTTS entry) is untouched; parsed jobs
+ *  are appended after it as the student's real additional work history. */
 function importApplyValues(v) {
+  if (v.program && v.program !== state.program) loadTemplate(v.program);
+
   const set = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
   set('f-name', v.name);
-  set('f-email', v.email);
-  if (v.phone) { const el = document.getElementById('f-phone'); if (el) { el.value = v.phone; formatPhone(el); } }
-  set('f-city', v.city);
-  set('f-state', v.state);
+  if (v.city) set('f-city', v.city);
+  if (v.state) set('f-state', v.state);
   set('f-edu-degree', v.eduDegree);
   set('f-edu-school', v.eduSchool);
   set('f-edu-city', v.eduCityState);
   set('f-edu-year', v.eduYear);
-  set('f-summary', v.summary);
-  state.summary = v.summary || state.summary;
 
-  if (v.program) {
-    state.program = v.program;
-    const radio = document.querySelector(`input[name="prog"][value="${v.program}"]`);
-    if (radio) radio.checked = true;
-  }
-
-  if (v.certs.length) state.certs = v.certs;
-  if (v.techSkills.length) state.techSkills = v.techSkills;
-  if (v.softSkills.length) state.softSkills = v.softSkills;
   if (v.info.length) state.info = v.info;
+  if (v.extraTechSkills.length) state.techSkills = importMergeSkills(state.techSkills, v.extraTechSkills);
+  if (v.extraSoftSkills.length) state.softSkills = importMergeSkills(state.softSkills, v.extraSoftSkills);
 
-  if (v.jobTitle || v.bullets.length || v.jobCompany) {
-    const job = state.jobs[0] || { id: Date.now(), title: '', company: '', location: '', bullets: [''] };
-    job.title = v.jobTitle || job.title;
-    job.company = v.jobCompany || job.company;
-    job.location = v.jobLocation || job.location;
-    if (v.bullets.length) job.bullets = v.bullets;
-    if (state.jobs.length) state.jobs[0] = job; else state.jobs = [job];
+  if (v.jobs.length) {
+    state.jobs = state.jobs.slice(0, 1); // keep only the GUTTS pre-apprenticeship entry (Job 1)
+    v.jobs.slice(0, MAX_JOBS - 1).forEach((j, i) => {
+      state.jobs.push({
+        id: Date.now() + i + 1, title: j.title, company: j.company, location: j.location,
+        date: j.date, bullets: j.bullets.length ? j.bullets : ['']
+      });
+    });
   }
-  if (v.jobDate) set('f-grad-date', v.jobDate.toUpperCase());
 
   renderTags('tech'); renderTags('soft'); renderTags('cert'); renderTags('info');
   renderJobs();
@@ -1486,21 +1525,26 @@ function runImportResume() {
     showToast('Paste a resume\'s text first.', 'warn');
     return;
   }
-  const { values, filled, missing } = importParseResume(text);
+  const { values, filled, missing, ignoredContact } = importParseResume(text);
   importApplyValues(values);
 
   const filledChips = filled.map(f => `<div class="ats-chip ats-chip-match">✓ ${escHtml(f)}</div>`).join('')
     || '<div class="ats-empty-note">Nothing could be filled from that text.</div>';
   const missingChips = missing.map(f => `<div class="ats-chip ats-chip-missing">${escHtml(f)}</div>`).join('')
     || '<div class="ats-empty-note">Everything was found.</div>';
+  const jobsFound = values.jobs.length;
+  const progLabel = state.program === 'plumbing' ? 'Plumbing' : 'HVAC';
 
   document.getElementById('import-results').innerHTML = `
     <div class="ats-group-title">✓ Filled in (${filled.length})</div>
     <div class="ats-chip-list">${filledChips}</div>
     <div class="ats-group-title">⚠ Not found — fill in manually (${missing.length})</div>
     <div class="ats-chip-list">${missingChips}</div>
-    <div class="ats-tips">The form behind this window has been updated. Close this and review every
-      section carefully — especially Work Experience and Education, which are the easiest to parse wrong.</div>
+    ${jobsFound ? `<div class="ats-group-title">+ Added ${jobsFound} job${jobsFound === 1 ? '' : 's'} after the GUTTS entry</div>` : ''}
+    ${ignoredContact ? `<div class="ats-tips">📌 A personal phone/email was found in that text but was <strong>not</strong> used — every resume keeps GUTTS' own contact info by design.</div>` : ''}
+    <div class="ats-tips">Profile Summary, Certifications, and base Technical/Soft Skills always come from the
+      ${progLabel} template, not the pasted resume — review the form behind this window, especially Education
+      and the added Work Experience entries.</div>
   `;
   showToast('Resume parsed — review the filled-in fields before exporting.', 'info');
 }
@@ -1716,7 +1760,7 @@ function renderJobs() {
         <div class="field-group">
           <label>Date Range</label>
           ${ji === 0
-            ? `<input type="text" value="${escAttr(g('f-grad-date') || 'MAR 2026')}" readonly
+            ? `<input type="text" value="${escAttr(g('f-grad-date') || currentMonthYear())}" readonly
                 style="background:#f0f4f8;color:#888;cursor:not-allowed;border-style:dashed">
                <div class="field-hint">↑ Set via Graduation Month/Year in GUTTS Program section</div>`
             : `<input type="text" value="${escAttr(job.date)}" placeholder="JAN 2024 – PRESENT" maxlength="30"
@@ -1914,7 +1958,7 @@ function render() {
   const eduSchool= g('f-edu-school') || 'School Name';
   const eduCity  = g('f-edu-city')   || '';
   const eduYear  = g('f-edu-year')   || 'Year';
-  const gradDate = g('f-grad-date')  || 'MAR 2026';
+  const gradDate = g('f-grad-date')  || currentMonthYear();
 
   const certHtml = state.certs.map(c => `<div class="r-sidebar-item">${escHtml(c)}</div>`).join('');
   const techHtml = state.techSkills.map(s => `<div class="r-sidebar-item">${escHtml(s)}</div>`).join('');
