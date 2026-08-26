@@ -823,7 +823,7 @@
           <label>Summary <span style="font-size:9px;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">(2–3 sentences)</span></label>
           <textarea id="f-summary" rows="4"
             placeholder="e.g. Motivated HVAC pre-apprentice with hands-on training in refrigeration, heating systems, and electrical safety. Completed 72-hour PHCC & DPOR accredited program with strong communication and customer service skills."
-            oninput="state.summary = this.value; checkOverflow(); render()"></textarea>
+            oninput="state.summary = this.value; render()"></textarea>
           <div class="field-hint">Shown at the top of your resume. Keep it to 2–3 sentences max.</div>
         </div>
       </div>
@@ -940,7 +940,7 @@
       </div>
       <div class="section-body open">
         <div class="overflow-warning" id="overflow-warning">
-          ⚠ Resume may overflow one page. Consider reducing jobs or bullet points.
+          ⚠ Resume runs longer than one page. Try a tighter Resume Fit, or trim skills, jobs, or bullet points.
         </div>
         <div id="jobs-container"></div>
         <button class="add-job-btn" id="add-job-btn" onclick="addJob()">+ Add Job</button>
@@ -1525,7 +1525,6 @@ function importApplyValues(v) {
   renderTags('tech'); renderTags('soft'); renderTags('cert'); renderTags('info');
   renderEducation();
   renderJobs();
-  checkOverflow();
   render();
 }
 
@@ -1709,7 +1708,6 @@ function reopenApplyValues(v) {
   renderTags('tech'); renderTags('soft'); renderTags('cert'); renderTags('info');
   renderEducation();
   renderJobs();
-  checkOverflow();
   render();
 }
 
@@ -2115,7 +2113,6 @@ function updateBullet(jobId, idx, val) {
   const job = state.jobs.find(j => j.id === jobId);
   if (!job) return;
   job.bullets[idx] = val;
-  checkOverflow();
   render();
 }
 
@@ -2169,7 +2166,7 @@ function updateSectionTitle(id, val) {
 
 function updateSectionItem(id, idx, val) {
   const sec = state.customSections.find(s => s.id === id);
-  if (sec) { sec.items[idx] = val; checkOverflow(); render(); }
+  if (sec) { sec.items[idx] = val; render(); }
 }
 
 function renderCustomSections() {
@@ -2212,28 +2209,30 @@ function renderCustomSections() {
 
 // ===== OVERFLOW CHECK =====
 /** Heuristic line count — warns if resume likely exceeds one printed page */
-function checkOverflow() {
-  // Rough estimate: each bullet ~1.5 lines, each job header ~2 lines. Main area fits ~60 lines.
-  let lineEstimate = 0;
-  state.jobs.forEach(job => {
-    lineEstimate += 3; // header + company line
-    lineEstimate += job.bullets.filter(b => b.trim()).length * 1.8;
-  });
-  if (state.summary.trim()) lineEstimate += 2.5;
-  state.customSections.forEach(sec => {
-    lineEstimate += 2;
-    lineEstimate += sec.items.filter(i => i.trim()).length * 1.5;
-  });
+/** Real measurement: does the rendered resume body exceed the current page size's
+ *  one-page target height? Reads live layout, so it covers the sidebar (certs, education,
+ *  skills, info) and the main column (summary, jobs, custom sections) equally — no guessing. */
+function isResumeOverflowing() {
+  const body = document.querySelector('#resume-output .r-body');
+  if (!body) return false;
+  const cfg = PAGE_SIZES[state.pageSize] || PAGE_SIZES.letter;
+  const targetHeight = parseFloat(cfg.bodyHeight);
+  return body.getBoundingClientRect().height > targetHeight + 1; // +1px rounding tolerance
+}
 
-  const threshold = (PAGE_SIZES[state.pageSize] || PAGE_SIZES.letter).overflowThreshold;
+// Tracks the last known state so the toast fires once, right when an edit pushes the
+// resume past one page — not on every keystroke while it's already overflowing.
+let wasOverflowing = false;
+
+function checkOverflow() {
+  const overflowing = isResumeOverflowing();
   const warning = document.getElementById('overflow-warning');
-  if (warning) {
-    if (lineEstimate > threshold) {
-      warning.classList.add('visible');
-    } else {
-      warning.classList.remove('visible');
-    }
+  if (warning) warning.classList.toggle('visible', overflowing);
+  if (overflowing && !wasOverflowing) {
+    showToast('⚠ This resume now runs longer than one page — consider trimming content.', 'warn');
   }
+  wasOverflowing = overflowing;
+  return overflowing;
 }
 
 // ===== RENDER RESUME =====
@@ -2333,7 +2332,14 @@ function exportPDF() {
     return;
   }
 
-  window.print();
+  // Warn (don't block) if it's still longer than one page — give the toast a moment
+  // to appear before the print dialog takes over the screen.
+  if (isResumeOverflowing()) {
+    showToast('⚠ This resume is longer than one page and may print across 2 pages. Consider trimming content or a tighter Resume Fit.', 'warn');
+    setTimeout(() => window.print(), 450);
+  } else {
+    window.print();
+  }
 }
 
 function exportWord() {
@@ -2341,6 +2347,9 @@ function exportWord() {
   if (!name.trim()) {
     showToast('Please enter a name before exporting.', 'error');
     return;
+  }
+  if (isResumeOverflowing()) {
+    showToast('⚠ This resume is longer than one page and may span 2 pages in Word. Consider trimming content or a tighter Resume Fit.', 'warn');
   }
 
   // Resolve CSS custom property values from the live resume element
@@ -2508,6 +2517,7 @@ function applyPreset(name) {
   });
   currentPreset = name;
   updatePresetUI();
+  checkOverflow(); // font/spacing just changed — re-measure against the page target
 }
 
 function updatePresetUI() {
@@ -2521,8 +2531,8 @@ function updatePresetUI() {
 //   Letter 8.5×11in  → 816×1056px → scaled: 760×983px
 //   A4     210×297mm → 794×1123px → scaled: 760×1076px
 const PAGE_SIZES = {
-  letter: { bodyHeight: '900px',  pageCSS: 'letter',  overflowThreshold: 42 },
-  a4:     { bodyHeight: '985px',  pageCSS: 'A4',      overflowThreshold: 47 },
+  letter: { bodyHeight: '900px',  pageCSS: 'letter' },
+  a4:     { bodyHeight: '985px',  pageCSS: 'A4' },
 };
 
 function setPageSize(size, silent = false) {
