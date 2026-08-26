@@ -333,39 +333,52 @@
   }
   .overflow-warning.visible { display: block; }
 
-  /* Page-break indicator — overlaid on the live preview at the exact height where a
-     2nd printed/exported page would start. Dashed line + hatched "off the page" zone
-     below it, so staff can see at a glance what's spilling over, not just be told. */
-  .page-break-indicator {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    display: none;
-    pointer-events: none;
-    border-top: 2px dashed #c0392b;
-    background: repeating-linear-gradient(
-      135deg,
-      rgba(192,57,43,0.07) 0px, rgba(192,57,43,0.07) 8px,
-      rgba(192,57,43,0.13) 8px, rgba(192,57,43,0.13) 16px
-    );
+  /* Word-style page preview: page 1 is clipped to exactly one page tall, then a
+     genuine "page 2" card appears below (with a gap between, like Word/Google Docs
+     print layout) showing a live clone of whatever spilled past page 1. */
+  .page1-clip {
+    overflow: visible;
   }
-  .page-break-indicator.visible { display: block; }
-  .page-break-tag {
+  .page-gap {
+    display: none;
+    height: 30px;
+    position: relative;
+  }
+  .page-gap.visible { display: block; }
+  .page-gap::after {
+    content: 'PAGE BREAK';
     position: absolute;
-    top: 0;
-    right: 0;
-    transform: translateY(-100%);
-    background: #c0392b;
-    color: white;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: var(--muted);
+    background: var(--bg);
+    padding: 2px 10px;
+    border-radius: 10px;
+    white-space: nowrap;
+  }
+  .page2-card {
+    display: none;
+    position: relative;
+  }
+  .page2-card.visible { display: block; }
+  .page2-clip {
+    overflow: hidden;
+  }
+  .page2-label {
+    position: absolute;
+    top: -20px;
+    left: 0;
     font-family: 'DM Mono', monospace;
     font-size: 10px;
     font-weight: 700;
-    letter-spacing: 0.5px;
+    letter-spacing: 1px;
+    color: #c0392b;
     text-transform: uppercase;
-    padding: 4px 10px;
-    border-radius: 4px 4px 0 0;
-    white-space: nowrap;
   }
 
   /* Job counter badge */
@@ -625,12 +638,15 @@
   }
   .page-size-btn:hover:not(.active) { background: var(--tag-bg); color: var(--navy); }
 
-  /* Print / Export — hides editor and toolbar; only `.resume-paper` prints */
+  /* Print / Export — hides editor and toolbar; only page 1's `.resume-paper` prints.
+     The page-2 preview card is purely a live-editing aid: the browser's own print
+     engine paginates the real (unclipped) content correctly on its own. */
   @media print {
-    .topbar, .editor, .preview-label, .fit-toolbar, .ats-overlay, .page-break-indicator { display: none !important; }
+    .topbar, .editor, .preview-label, .fit-toolbar, .ats-overlay, .page-gap, .page2-card { display: none !important; }
     .workspace { display: block; height: auto; }
     .preview { background: white; padding: 0; }
     .resume-paper-wrap { width: 100%; }
+    .page1-clip { height: auto !important; overflow: visible !important; }
     .resume-paper { box-shadow: none; width: 100%; }
     body { background: white; }
   }
@@ -1033,12 +1049,22 @@
     </div>
 
     <div class="resume-paper-wrap">
-      <div class="resume-paper" id="resume-output"></div>
-      <!-- Shows exactly where page 2 would start when content runs long — purely a
-           visual aid; lives outside #resume-output so render() never wipes it and
-           it never gets copied into the Word/PDF export. -->
-      <div class="page-break-indicator" id="page-break-indicator">
-        <div class="page-break-tag">Page 2 starts here ↓</div>
+      <!-- Page 1: clipped to exactly one page tall when content overflows, so it
+           looks like a real page cutoff instead of an ever-growing box. -->
+      <div class="page1-clip" id="page1-clip">
+        <div class="resume-paper" id="resume-output"></div>
+      </div>
+      <!-- Page 2 preview: a live clone of #resume-output, shifted up so only the part
+           that didn't fit on page 1 shows through. Purely a live-editing aid — lives
+           outside #resume-output so render() never wipes it, it's rebuilt by
+           updatePagePreview() whenever content changes, and it's hidden in
+           @media print (the browser's own print engine paginates the real content). -->
+      <div class="page-gap" id="page-gap"></div>
+      <div class="page2-card" id="page2-card">
+        <div class="page2-label">Page 2</div>
+        <div class="page2-clip" id="page2-clip">
+          <div class="resume-paper" id="page2-content"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -2271,22 +2297,50 @@ function isResumeOverflowing() {
   return body.getBoundingClientRect().height > targetHeight + 1; // +1px rounding tolerance
 }
 
-/** Position the page-break overlay at the exact pixel row where a 2nd page would
- *  start, so staff can SEE what's spilling over — not just be told it's overflowing. */
-function updatePageBreakIndicator(overflowing) {
-  const indicator = document.getElementById('page-break-indicator');
-  const wrap = document.querySelector('.resume-paper-wrap');
-  const body = document.querySelector('#resume-output .r-body');
-  if (!indicator) return;
-  if (!overflowing || !wrap || !body) {
-    indicator.classList.remove('visible');
+/** Word-style page preview: clip page 1 to exactly one page tall, then build a real
+ *  "page 2" card below it (with a gap, like Word/Google Docs print layout) showing a
+ *  live clone of whatever didn't fit — shifted up so only the spillover is visible. */
+function updatePagePreview(overflowing) {
+  const output = document.getElementById('resume-output');
+  const clip1  = document.getElementById('page1-clip');
+  const gap    = document.getElementById('page-gap');
+  const card2  = document.getElementById('page2-card');
+  const clip2  = document.getElementById('page2-clip');
+  const content2 = document.getElementById('page2-content');
+  if (!output || !clip1 || !gap || !card2 || !clip2 || !content2) return;
+
+  if (!overflowing) {
+    clip1.style.height = '';
+    clip1.style.overflow = '';
+    gap.classList.remove('visible');
+    card2.classList.remove('visible');
+    content2.innerHTML = '';
     return;
   }
+
+  const body = output.querySelector('.r-body');
+  const wrap = document.querySelector('.resume-paper-wrap');
+  if (!body || !wrap) return;
+
   const cfg = PAGE_SIZES[state.pageSize] || PAGE_SIZES.letter;
-  const targetHeight = parseFloat(cfg.bodyHeight);
-  const lineY = (body.getBoundingClientRect().top - wrap.getBoundingClientRect().top) + targetHeight;
-  indicator.style.top = lineY + 'px';
-  indicator.classList.add('visible');
+  const targetBodyHeight = parseFloat(cfg.bodyHeight);
+  const pageHeight = (body.getBoundingClientRect().top - wrap.getBoundingClientRect().top) + targetBodyHeight;
+  const overflowHeight = Math.max(output.scrollHeight - pageHeight, 40); // never a sliver
+
+  // Clip page 1 to exactly one page tall
+  clip1.style.height = pageHeight + 'px';
+  clip1.style.overflow = 'hidden';
+
+  // Clone the live content onto page 2, matching the active Resume Fit preset,
+  // shifted up so only the part that spilled past page 1 is visible.
+  content2.innerHTML = output.innerHTML;
+  const preset = PRESETS[currentPreset] || PRESETS.normal;
+  Object.entries(preset).forEach(([prop, val]) => content2.style.setProperty(prop, val));
+  content2.style.marginTop = (-pageHeight) + 'px';
+
+  gap.classList.add('visible');
+  card2.classList.add('visible');
+  clip2.style.height = overflowHeight + 'px';
 }
 
 // Tracks the last known state so the toast fires once, right when an edit pushes the
@@ -2297,7 +2351,7 @@ function checkOverflow() {
   const overflowing = isResumeOverflowing();
   const warning = document.getElementById('overflow-warning');
   if (warning) warning.classList.toggle('visible', overflowing);
-  updatePageBreakIndicator(overflowing);
+  updatePagePreview(overflowing);
   if (overflowing && !wasOverflowing) {
     showToast('⚠ This resume now runs longer than one page — consider trimming content.', 'warn');
   }
