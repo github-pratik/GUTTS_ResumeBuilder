@@ -1972,7 +1972,7 @@ function render() {
         <div class="r-job-title">${escHtml(job.title || 'Job Title')}</div>
         <div class="r-job-date">${escHtml(idx === 0 ? gradDate : (job.date || ''))}</div>
       </div>
-      <div class="r-job-sub">${escHtml(job.company || 'Company')} | ${escHtml(job.location || 'Location')}</div>
+      <div class="r-job-sub">${escHtml(job.company || 'Company')}${job.location ? ' | ' + escHtml(job.location) : ''}</div>
       ${job.bullets.filter(b => b.trim()).map(b => `<div class="r-bullet">${escHtml(b)}</div>`).join('')}
     </div>
   `).join('');
