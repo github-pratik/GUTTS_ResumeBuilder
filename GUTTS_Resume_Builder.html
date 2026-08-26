@@ -682,6 +682,13 @@
   .ats-chip-add:hover { background: var(--navy); color: white; }
   .ats-empty-note { font-size: 12px; color: var(--muted); font-style: italic; }
   .ats-tips { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); line-height: 1.6; }
+  .import-exact-toggle {
+    display: flex; align-items: flex-start; gap: 8px;
+    background: var(--sidebar-bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px 12px; margin-bottom: 14px; font-size: 12px; color: var(--text);
+    line-height: 1.5; cursor: pointer;
+  }
+  .import-exact-toggle input { margin-top: 2px; width: auto; flex-shrink: 0; }
 </style>
 </head>
 <body>
@@ -712,23 +719,28 @@
 <div class="ats-overlay" id="import-overlay" onclick="if(event.target===this) closeImportResume()">
   <div class="ats-modal">
     <div class="ats-modal-header">
-      <div class="ats-modal-title">📥 IMPORT OLD RESUME</div>
+      <div class="ats-modal-title">📥 IMPORT / REOPEN RESUME</div>
       <button class="ats-modal-close" onclick="closeImportResume()">×</button>
     </div>
     <div class="ats-modal-body">
       <div class="field-hint" style="margin-bottom:10px">
-        Open the student's old resume (Word doc or PDF), select all the text (Ctrl/Cmd+A), copy it,
-        and paste it below. This pulls in only the <strong>per-student</strong> pieces — name, education,
-        relevant info, any extra skills, and real additional work history — and adds them on top of
-        whichever HVAC/Plumbing template is loaded (auto-detected from the text when possible).
+        Open the resume (Word doc or PDF), select all the text (Ctrl/Cmd+A), copy it, and paste it below.
+        By default this pulls in only the <strong>per-student</strong> pieces — name, education, relevant
+        info, any extra skills, and real additional work history — and adds them on top of whichever
+        HVAC/Plumbing template is loaded (auto-detected from the text when possible).
         <strong>Profile Summary, Certifications, base Technical/Soft Skills, and the GUTTS pre-apprenticeship
-        job entry always stay from the template</strong> — they're common to every resume in a program, not
-        pulled from the old resume. Phone/email always stay GUTTS' own too.
-        Import into a fresh session per student, and always review before exporting.
+        job entry stay from the template</strong> — they're common to every resume in a program, not pulled
+        from an old resume. Phone/email always stay GUTTS' own too.
       </div>
+      <label class="import-exact-toggle">
+        <input type="checkbox" id="import-exact-mode">
+        <span>I'm re-editing a resume <strong>this tool already generated</strong> (fixing a mistake) —
+        restore every field exactly as it was, including Summary, Certifications, Skills, and every job,
+        instead of protecting the template.</span>
+      </label>
       <div class="field-group">
         <label>Pasted resume text</label>
-        <textarea id="import-text-input" rows="10" placeholder="Paste the old resume's text here..."></textarea>
+        <textarea id="import-text-input" rows="10" placeholder="Paste the resume's text here..."></textarea>
       </div>
       <button class="btn btn-accent ats-check-btn" onclick="runImportResume()">Parse &amp; Fill Form</button>
       <div class="ats-results" id="import-results"></div>
@@ -1519,12 +1531,206 @@ function importApplyValues(v) {
   render();
 }
 
+// ----- Reopen exact GUTTS resume (opt-in via the "I'm re-editing..." checkbox) -----
+// This tool always prints the same exact section headers and job layout, so when the
+// pasted text IS one of its own resumes, every field can be restored precisely instead
+// of protecting the template — for fixing a mistake in an already-exported resume.
+const REOPEN_HEADERS = {
+  certs: 'Certificates & Accreditations', education: 'Education', techSkills: 'Technical Skills',
+  softSkills: 'Soft Skills', info: 'Relevant Information', summary: 'Profile Summary',
+  experience: 'Professional Experience',
+};
+const REOPEN_HEADER_BY_TEXT = Object.fromEntries(
+  Object.entries(REOPEN_HEADERS).map(([key, label]) => [label.toLowerCase(), key])
+);
+
+function reopenSegment(text) {
+  const lines = text.split(/\r?\n/).map(l => l.trim());
+  const sections = { certs: [], education: [], techSkills: [], softSkills: [], info: [], summary: [], experience: [] };
+  const headerLines = [];
+  let current = null;
+  lines.forEach(line => {
+    if (!line) return;
+    const key = REOPEN_HEADER_BY_TEXT[line.toLowerCase()];
+    if (key) { current = key; return; }
+    (current ? sections[current] : headerLines).push(line);
+  });
+  return { headerLines, sections };
+}
+
+/** True if `lines[i]` starts a new job — either it carries a date itself, or the very
+ *  next line is a standalone date (the title/date table row printed as two lines, which
+ *  is what a browser-copied resume preview actually produces). */
+function reopenLooksLikeJobStart(lines, i) {
+  if (i >= lines.length) return false;
+  if (IMPORT_DATE_RE.test(lines[i])) return true;
+  const next = lines[i + 1];
+  return !!(next && IMPORT_DATE_RE.test(next) && next.replace(IMPORT_DATE_RE, '').trim().length < 3);
+}
+
+/** Split a "Professional Experience" block into every job it contains, exactly per this
+ *  tool's own layout: Title[+Date] line (Date may print on its own following line),
+ *  then Company[| Location] line, then bullets. */
+function reopenParseJobs(expLines) {
+  const jobs = [];
+  let i = 0;
+  while (i < expLines.length) {
+    let title = '', date = '';
+    const dm = expLines[i].match(IMPORT_DATE_RE);
+    if (dm) { title = expLines[i].slice(0, dm.index).trim(); date = dm[0].trim(); }
+    else { title = expLines[i].trim(); }
+    i++;
+    if (!date && expLines[i] && IMPORT_DATE_RE.test(expLines[i]) && expLines[i].replace(IMPORT_DATE_RE, '').trim().length < 3) {
+      date = expLines[i].match(IMPORT_DATE_RE)[0].trim();
+      i++;
+    }
+    let company = '', location = '';
+    if (expLines[i] && !/^[•\-*▪●‣⁃]/.test(expLines[i]) && !reopenLooksLikeJobStart(expLines, i)) {
+      const compLine = expLines[i];
+      if (compLine.includes('|')) {
+        const [c, l] = compLine.split('|');
+        company = (c || '').trim();
+        location = (l || '').trim();
+      } else {
+        company = compLine.trim();
+      }
+      i++;
+    }
+    const bullets = [];
+    while (i < expLines.length && !reopenLooksLikeJobStart(expLines, i)) {
+      const b = importStripBullet(expLines[i]);
+      if (b) bullets.push(b);
+      i++;
+    }
+    jobs.push({ title, company, location, date, bullets: bullets.slice(0, MAX_BULLETS) });
+  }
+  return jobs.slice(0, MAX_JOBS);
+}
+
+/** Parse pasted text as an EXACT reopen of a resume this tool generated — restores every
+ *  field, including Summary/Certs/base Skills/all jobs, with no template protection. */
+function reopenParseResume(text) {
+  const { headerLines, sections } = reopenSegment(text);
+  const filled = [];
+  const missing = [];
+  const note = (label, ok) => (ok ? filled : missing).push(label);
+
+  const name = headerLines[0] || '';
+  note('Name', !!name);
+
+  let city = '', st = '', phone = '', email = '';
+  const contactParts = headerLines.slice(1).join(' ').split(/\s*\|\s*/).map(s => s.trim()).filter(Boolean);
+  if (contactParts[0]) {
+    const cs = contactParts[0].match(/^(.*),\s*([A-Za-z]{2})$/);
+    if (cs) { city = cs[1].trim(); st = cs[2].trim().toUpperCase(); }
+  }
+  contactParts.forEach(p => {
+    if (/@/.test(p)) email = p;
+    else if (/\d{3}.*\d{3}.*\d{4}/.test(p)) phone = p;
+  });
+  note('Contact (city/state/phone/email)', !!(city || phone || email));
+
+  const eduLines = sections.education.filter(Boolean);
+  const eduDegree = eduLines[0] || '';
+  const eduSchoolLine = eduLines[1] || '';
+  const eduYear = eduLines[2] || '';
+  let eduSchool = eduSchoolLine, eduCityState = '';
+  const eduMatch = eduSchoolLine.match(/^(.*?),\s*(.+)$/);
+  if (eduMatch) { eduSchool = eduMatch[1].trim(); eduCityState = eduMatch[2].trim(); }
+  note('Education', !!(eduDegree || eduSchool || eduYear));
+
+  const certs = sections.certs.filter(Boolean).slice(0, MAX_CERTS);
+  const techSkills = sections.techSkills.filter(Boolean).slice(0, MAX_SKILLS);
+  const softSkills = sections.softSkills.filter(Boolean).slice(0, MAX_SKILLS);
+  const info = sections.info.filter(Boolean).slice(0, 10);
+  const summary = sections.summary.join(' ').replace(/\s+/g, ' ').trim();
+  note('Certifications', certs.length > 0);
+  note('Technical Skills', techSkills.length > 0);
+  note('Soft Skills', softSkills.length > 0);
+  note('Relevant Info', info.length > 0);
+  note('Profile Summary', !!summary);
+
+  const hvacHits = (text.match(/\bhvac|hvacr|refriger/gi) || []).length;
+  const plumbHits = (text.match(/\bplumb/gi) || []).length;
+  const program = hvacHits === plumbHits ? '' : (hvacHits > plumbHits ? 'hvac' : 'plumbing');
+
+  const jobs = reopenParseJobs(sections.experience.filter(Boolean));
+  note('Work Experience', jobs.length > 0);
+
+  return {
+    values: { name, city, state: st, phone, email, eduDegree, eduSchool, eduCityState, eduYear,
+      certs, techSkills, softSkills, info, summary, program, jobs },
+    filled, missing,
+  };
+}
+
+/** Apply an exact reopen — overwrites everything, including template-protected fields. */
+function reopenApplyValues(v) {
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+  set('f-name', v.name);
+  set('f-city', v.city);
+  set('f-state', v.state);
+  if (v.phone) { const el = document.getElementById('f-phone'); if (el) { el.value = v.phone; formatPhone(el); } }
+  set('f-email', v.email);
+  set('f-edu-degree', v.eduDegree);
+  set('f-edu-school', v.eduSchool);
+  set('f-edu-city', v.eduCityState);
+  set('f-edu-year', v.eduYear);
+  set('f-summary', v.summary);
+  state.summary = v.summary;
+
+  if (v.program) {
+    state.program = v.program;
+    const radio = document.querySelector(`input[name="prog"][value="${v.program}"]`);
+    if (radio) radio.checked = true;
+  }
+
+  state.certs = v.certs;
+  state.techSkills = v.techSkills;
+  state.softSkills = v.softSkills;
+  state.info = v.info;
+
+  if (v.jobs.length) {
+    state.jobs = v.jobs.map((j, i) => ({
+      id: Date.now() + i, title: j.title, company: j.company, location: j.location,
+      date: j.date, bullets: j.bullets.length ? j.bullets : ['']
+    }));
+    set('f-grad-date', (v.jobs[0].date || '').toUpperCase());
+  }
+
+  renderTags('tech'); renderTags('soft'); renderTags('cert'); renderTags('info');
+  renderJobs();
+  checkOverflow();
+  render();
+}
+
 function runImportResume() {
   const text = document.getElementById('import-text-input').value;
   if (!text.trim()) {
     showToast('Paste a resume\'s text first.', 'warn');
     return;
   }
+
+  if (document.getElementById('import-exact-mode').checked) {
+    const { values, filled, missing } = reopenParseResume(text);
+    reopenApplyValues(values);
+    const filledChips = filled.map(f => `<div class="ats-chip ats-chip-match">✓ ${escHtml(f)}</div>`).join('')
+      || '<div class="ats-empty-note">Nothing could be restored — is this really a resume this tool generated?</div>';
+    const missingChips = missing.map(f => `<div class="ats-chip ats-chip-missing">${escHtml(f)}</div>`).join('')
+      || '<div class="ats-empty-note">Everything was restored.</div>';
+    document.getElementById('import-results').innerHTML = `
+      <div class="ats-group-title">✓ Restored exactly (${filled.length})</div>
+      <div class="ats-chip-list">${filledChips}</div>
+      <div class="ats-group-title">⚠ Not found (${missing.length})</div>
+      <div class="ats-chip-list">${missingChips}</div>
+      <div class="ats-tips">Every field — Summary, Certifications, Skills, and all ${values.jobs.length} job${values.jobs.length === 1 ? '' : 's'} —
+        was overwritten with exactly what was in the pasted text. Fix the mistake in the form behind this
+        window, then export again.</div>
+    `;
+    showToast('Resume restored exactly — fix the mistake, then export again.', 'info');
+    return;
+  }
+
   const { values, filled, missing, ignoredContact } = importParseResume(text);
   importApplyValues(values);
 
