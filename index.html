@@ -464,6 +464,8 @@
     font-family: 'DM Mono', monospace;
   }
   .r-sidebar-item { font-size: var(--rf-base); color: #333; margin-bottom: var(--rf-item-gap); line-height: var(--rf-lh); }
+  .r-edu-entry  { margin-bottom: 6px; }
+  .r-edu-entry:last-child { margin-bottom: 0; }
   .r-edu-degree { font-size: var(--rf-base); font-weight: 600; color: #1a2332; margin-bottom: 1px; }
   .r-edu-school { font-size: var(--rf-sm); color: #555; font-style: italic; margin-bottom: 1px; }
   .r-edu-year   { font-size: var(--rf-sm); color: #777; }
@@ -851,29 +853,15 @@
     <!-- Education -->
     <div class="editor-section">
       <div class="section-header" onclick="toggleSection(this)">
-        <div class="section-header-title"><div class="section-dot"></div> Education</div>
+        <div class="section-header-title">
+          <div class="section-dot"></div> Education
+          <span class="job-counter" id="edu-counter"></span>
+        </div>
         <div class="section-toggle">▾</div>
       </div>
       <div class="section-body">
-        <div class="field-group">
-          <label>Degree / Field of Study</label>
-          <input type="text" id="f-edu-degree" placeholder="Heating and Air Conditioning" maxlength="80" oninput="render()">
-        </div>
-        <div class="field-group">
-          <label>School Name</label>
-          <input type="text" id="f-edu-school" placeholder="Ashworth College" maxlength="80" oninput="render()">
-        </div>
-        <div class="field-row">
-          <div class="field-group">
-            <label>City, State</label>
-            <input type="text" id="f-edu-city" placeholder="Norcross, GA" maxlength="40" oninput="render()">
-          </div>
-          <div class="field-group">
-            <label>Year</label>
-            <input type="text" id="f-edu-year" placeholder="2020" maxlength="4"
-              oninput="this.value=this.value.replace(/[^0-9]/g,'');render()">
-          </div>
-        </div>
+        <div id="education-container"></div>
+        <button class="add-job-btn" id="add-education-btn" onclick="addEducation()">+ Add Education</button>
       </div>
     </div>
 
@@ -1022,6 +1010,7 @@ const MAX_JOBS = 7;
 const MAX_BULLETS = 7;
 const MAX_SKILLS = 20;
 const MAX_CERTS = 8;
+const MAX_EDUCATION = 4;
 const MAX_CUSTOM_SECTIONS = 2;
 const MAX_SECTION_ITEMS = 5;
 
@@ -1052,6 +1041,7 @@ let state = {
   softSkills: [],
   certs: [],
   info: [],
+  education: [],
   jobs: [],
   customSections: []
 };
@@ -1114,6 +1104,12 @@ function loadTemplate(type) {
     state.jobs[0].bullets = [...t.job0bullets];
   }
 
+  // Education is per-student — only seed a blank entry the first time so the sidebar
+  // isn't empty; never touched again by (re)loading a template.
+  if (state.education.length === 0) {
+    state.education = [{ id: Date.now() + 1, degree: '', school: '', city: '', year: '' }];
+  }
+
   // Check the correct radio button
   const radio = document.querySelector(`input[name="prog"][value="${type}"]`);
   if (radio) radio.checked = true;
@@ -1136,6 +1132,7 @@ function loadTemplate(type) {
   if (stateField && !stateField.value) stateField.value = GUTTS_DEFAULT_STATE;
 
   renderTags('tech'); renderTags('soft'); renderTags('cert'); renderTags('info');
+  renderEducation();
   renderJobs();
   renderCustomSections();
   render();
@@ -1480,7 +1477,8 @@ function importParseResume(text) {
   return {
     values: {
       name, city: cityStateMatch ? cityStateMatch[1].trim() : '', state: cityStateMatch ? cityStateMatch[2] : '',
-      eduDegree, eduSchool, eduCityState, eduYear, info, extraTechSkills, extraSoftSkills, program, jobs,
+      education: (eduDegree || eduSchool || eduYear) ? [{ degree: eduDegree, school: eduSchool, city: eduCityState, year: eduYear }] : [],
+      info, extraTechSkills, extraSoftSkills, program, jobs,
     },
     filled, missing,
     ignoredContact: !!(emailMatch || phoneMatch),
@@ -1506,10 +1504,9 @@ function importApplyValues(v) {
   set('f-name', v.name);
   if (v.city) set('f-city', v.city);
   if (v.state) set('f-state', v.state);
-  set('f-edu-degree', v.eduDegree);
-  set('f-edu-school', v.eduSchool);
-  set('f-edu-city', v.eduCityState);
-  set('f-edu-year', v.eduYear);
+  if (v.education.length) {
+    state.education = v.education.map((e, i) => ({ id: Date.now() + i, ...e }));
+  }
 
   if (v.info.length) state.info = v.info;
   if (v.extraTechSkills.length) state.techSkills = importMergeSkills(state.techSkills, v.extraTechSkills);
@@ -1526,6 +1523,7 @@ function importApplyValues(v) {
   }
 
   renderTags('tech'); renderTags('soft'); renderTags('cert'); renderTags('info');
+  renderEducation();
   renderJobs();
   checkOverflow();
   render();
@@ -1607,6 +1605,23 @@ function reopenParseJobs(expLines) {
   return jobs.slice(0, MAX_JOBS);
 }
 
+/** Split an Education block into every entry it contains — exactly per this tool's own
+ *  layout, 3 lines per entry (Degree, School[, City], Year), repeated for each entry. */
+function reopenParseEducation(eduLines) {
+  const clean = eduLines.filter(Boolean);
+  const entries = [];
+  for (let i = 0; i < clean.length; i += 3) {
+    const degree = clean[i] || '';
+    const schoolLine = clean[i + 1] || '';
+    const year = clean[i + 2] || '';
+    let school = schoolLine, city = '';
+    const m = schoolLine.match(/^(.*?),\s*(.+)$/);
+    if (m) { school = m[1].trim(); city = m[2].trim(); }
+    if (degree || school || year) entries.push({ degree, school, city, year });
+  }
+  return entries.slice(0, MAX_EDUCATION);
+}
+
 /** Parse pasted text as an EXACT reopen of a resume this tool generated — restores every
  *  field, including Summary/Certs/base Skills/all jobs, with no template protection. */
 function reopenParseResume(text) {
@@ -1630,14 +1645,8 @@ function reopenParseResume(text) {
   });
   note('Contact (city/state/phone/email)', !!(city || phone || email));
 
-  const eduLines = sections.education.filter(Boolean);
-  const eduDegree = eduLines[0] || '';
-  const eduSchoolLine = eduLines[1] || '';
-  const eduYear = eduLines[2] || '';
-  let eduSchool = eduSchoolLine, eduCityState = '';
-  const eduMatch = eduSchoolLine.match(/^(.*?),\s*(.+)$/);
-  if (eduMatch) { eduSchool = eduMatch[1].trim(); eduCityState = eduMatch[2].trim(); }
-  note('Education', !!(eduDegree || eduSchool || eduYear));
+  const education = reopenParseEducation(sections.education);
+  note('Education', education.length > 0);
 
   const certs = sections.certs.filter(Boolean).slice(0, MAX_CERTS);
   const techSkills = sections.techSkills.filter(Boolean).slice(0, MAX_SKILLS);
@@ -1658,7 +1667,7 @@ function reopenParseResume(text) {
   note('Work Experience', jobs.length > 0);
 
   return {
-    values: { name, city, state: st, phone, email, eduDegree, eduSchool, eduCityState, eduYear,
+    values: { name, city, state: st, phone, email, education,
       certs, techSkills, softSkills, info, summary, program, jobs },
     filled, missing,
   };
@@ -1672,10 +1681,6 @@ function reopenApplyValues(v) {
   set('f-state', v.state);
   if (v.phone) { const el = document.getElementById('f-phone'); if (el) { el.value = v.phone; formatPhone(el); } }
   set('f-email', v.email);
-  set('f-edu-degree', v.eduDegree);
-  set('f-edu-school', v.eduSchool);
-  set('f-edu-city', v.eduCityState);
-  set('f-edu-year', v.eduYear);
   set('f-summary', v.summary);
   state.summary = v.summary;
 
@@ -1685,6 +1690,9 @@ function reopenApplyValues(v) {
     if (radio) radio.checked = true;
   }
 
+  state.education = v.education.length
+    ? v.education.map((e, i) => ({ id: Date.now() + i, ...e }))
+    : [{ id: Date.now(), degree: '', school: '', city: '', year: '' }];
   state.certs = v.certs;
   state.techSkills = v.techSkills;
   state.softSkills = v.softSkills;
@@ -1699,6 +1707,7 @@ function reopenApplyValues(v) {
   }
 
   renderTags('tech'); renderTags('soft'); renderTags('cert'); renderTags('info');
+  renderEducation();
   renderJobs();
   checkOverflow();
   render();
@@ -1896,6 +1905,84 @@ function renderTags(type) {
   container.innerHTML = arr.map((item, i) =>
     `<div class="tag">${escHtml(item)}<span class="tag-remove" onclick="removeTag('${type}',${i})">×</span></div>`
   ).join('');
+}
+
+// ===== EDUCATION =====
+/** Add another education block (max MAX_EDUCATION) */
+function addEducation() {
+  if (state.education.length >= MAX_EDUCATION) {
+    showToast(`Maximum ${MAX_EDUCATION} education entries allowed.`, 'warn');
+    return;
+  }
+  state.education.push({ id: Date.now(), degree: '', school: '', city: '', year: '' });
+  renderEducation();
+  render();
+}
+
+function removeEducation(id) {
+  state.education = state.education.filter(e => e.id !== id);
+  renderEducation();
+  render();
+}
+
+// Avoids renderEducation() on keystroke to preserve focus, same fix as updateJob()
+function updateEducation(id, field, val) {
+  const edu = state.education.find(e => e.id === id);
+  if (!edu) return;
+  if (field === 'year') val = val.replace(/[^0-9]/g, '');
+  edu[field] = val;
+
+  if (field === 'degree' || field === 'school') {
+    const ei = state.education.findIndex(e => e.id === id);
+    const headerEl = document.getElementById('edu-header-' + id);
+    if (headerEl) headerEl.textContent = `Education ${ei + 1}${edu.school ? ' — ' + edu.school : ''}`;
+  }
+  render();
+}
+
+/** Rebuild all education editor blocks from state.education */
+function renderEducation() {
+  const container = document.getElementById('education-container');
+  container.innerHTML = state.education.map((edu, ei) => `
+    <div class="job-block">
+      <div class="job-block-header">
+        <span id="edu-header-${edu.id}">Education ${ei + 1}${edu.school ? ' — ' + escHtml(edu.school) : ''}</span>
+        <button class="job-block-remove" onclick="removeEducation(${edu.id})" title="Remove education">×</button>
+      </div>
+      <div class="job-block-body">
+        <div class="field-group">
+          <label>Degree / Field of Study</label>
+          <input type="text" value="${escAttr(edu.degree)}" placeholder="Heating and Air Conditioning" maxlength="80"
+            oninput="updateEducation(${edu.id},'degree',this.value)">
+        </div>
+        <div class="field-group">
+          <label>School Name</label>
+          <input type="text" value="${escAttr(edu.school)}" placeholder="Ashworth College" maxlength="80"
+            oninput="updateEducation(${edu.id},'school',this.value)">
+        </div>
+        <div class="field-row">
+          <div class="field-group">
+            <label>City, State</label>
+            <input type="text" value="${escAttr(edu.city)}" placeholder="Norcross, GA" maxlength="40"
+              oninput="updateEducation(${edu.id},'city',this.value)">
+          </div>
+          <div class="field-group">
+            <label>Year</label>
+            <input type="text" value="${escAttr(edu.year)}" placeholder="2020" maxlength="4"
+              oninput="updateEducation(${edu.id},'year',this.value)">
+          </div>
+        </div>
+      </div>
+    </div>
+  `).join('');
+
+  const counter = document.getElementById('edu-counter');
+  if (counter) counter.textContent = `(${state.education.length}/${MAX_EDUCATION})`;
+  const addBtn = document.getElementById('add-education-btn');
+  if (addBtn) {
+    addBtn.disabled = state.education.length >= MAX_EDUCATION;
+    addBtn.title = state.education.length >= MAX_EDUCATION ? `Max ${MAX_EDUCATION} education entries allowed` : '';
+  }
 }
 
 // ===== JOBS =====
@@ -2160,16 +2247,20 @@ function render() {
   const email    = g('f-email')      || 'email@email.com';
   const city     = g('f-city')       || 'City';
   const st       = g('f-state')      || 'ST';
-  const eduDeg   = g('f-edu-degree') || 'Field of Study';
-  const eduSchool= g('f-edu-school') || 'School Name';
-  const eduCity  = g('f-edu-city')   || '';
-  const eduYear  = g('f-edu-year')   || 'Year';
   const gradDate = g('f-grad-date')  || currentMonthYear();
 
   const certHtml = state.certs.map(c => `<div class="r-sidebar-item">${escHtml(c)}</div>`).join('');
   const techHtml = state.techSkills.map(s => `<div class="r-sidebar-item">${escHtml(s)}</div>`).join('');
   const softHtml = state.softSkills.map(s => `<div class="r-sidebar-item">${escHtml(s)}</div>`).join('');
   const infoHtml = state.info.map(s => `<div class="r-sidebar-item">${escHtml(s)}</div>`).join('');
+  // Year (like job Location) only prints when actually filled in — no placeholder text
+  const eduHtml = state.education.map(edu => `
+    <div class="r-edu-entry">
+      <div class="r-edu-degree">${escHtml(edu.degree || 'Field of Study')}</div>
+      <div class="r-edu-school">${escHtml(edu.school || 'School Name')}${edu.city ? ', ' + escHtml(edu.city) : ''}</div>
+      ${edu.year ? `<div class="r-edu-year">${escHtml(edu.year)}</div>` : ''}
+    </div>
+  `).join('');
 
   // Job 0 = GUTTS pre-apprenticeship; date comes from #f-grad-date, not job.date
   const jobsHtml = state.jobs.map((job, idx) => `
@@ -2193,12 +2284,7 @@ function render() {
     <div class="r-body">
       <div class="r-sidebar">
         ${certHtml ? `<div class="r-sidebar-section"><div class="r-sidebar-title">Certificates & Accreditations</div>${certHtml}</div>` : ''}
-        <div class="r-sidebar-section">
-          <div class="r-sidebar-title">Education</div>
-          <div class="r-edu-degree">${escHtml(eduDeg)}</div>
-          <div class="r-edu-school">${escHtml(eduSchool)}${eduCity ? ', ' + escHtml(eduCity) : ''}</div>
-          <div class="r-edu-year">${escHtml(eduYear)}</div>
-        </div>
+        ${eduHtml ? `<div class="r-sidebar-section"><div class="r-sidebar-title">Education</div>${eduHtml}</div>` : ''}
         ${techHtml ? `<div class="r-sidebar-section"><div class="r-sidebar-title">Technical Skills</div>${techHtml}</div>` : ''}
         ${softHtml ? `<div class="r-sidebar-section"><div class="r-sidebar-title">Soft Skills</div>${softHtml}</div>` : ''}
         ${infoHtml ? `<div class="r-sidebar-section"><div class="r-sidebar-title">Relevant Information</div>${infoHtml}</div>` : ''}
@@ -2277,6 +2363,7 @@ function exportWord() {
     .r-sidebar-section { margin-bottom: 14px; }
     .r-sidebar-title { font-size: 8px; font-weight: 700; color: #2D4B6E; text-transform: uppercase; letter-spacing: 0.8px; border-bottom: 1px solid #dde3ec; padding-bottom: 4px; margin-bottom: 6px; }
     .r-sidebar-item { font-size: ${base}; color: #333; margin-bottom: 2px; line-height: ${lh}; }
+    .r-edu-entry  { margin-bottom: 6px; }
     .r-edu-degree { font-size: ${base}; font-weight: 600; color: #1a2332; }
     .r-edu-school { font-size: ${sm}; color: #555; font-style: italic; }
     .r-edu-year   { font-size: ${sm}; color: #777; }
@@ -2473,7 +2560,7 @@ function autoFit() {
   score += state.softSkills.length  * 0.45;
   score += state.certs.length       * 0.6;
   score += state.info.length        * 0.35;
-  score += 2; // education block
+  score += state.education.length * 2; // education entries
   if (state.summary.trim()) score += 2.5;
   state.customSections.forEach(sec => {
     score += 1.5;
