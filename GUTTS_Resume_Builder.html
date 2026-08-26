@@ -333,6 +333,41 @@
   }
   .overflow-warning.visible { display: block; }
 
+  /* Page-break indicator — overlaid on the live preview at the exact height where a
+     2nd printed/exported page would start. Dashed line + hatched "off the page" zone
+     below it, so staff can see at a glance what's spilling over, not just be told. */
+  .page-break-indicator {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: none;
+    pointer-events: none;
+    border-top: 2px dashed #c0392b;
+    background: repeating-linear-gradient(
+      135deg,
+      rgba(192,57,43,0.07) 0px, rgba(192,57,43,0.07) 8px,
+      rgba(192,57,43,0.13) 8px, rgba(192,57,43,0.13) 16px
+    );
+  }
+  .page-break-indicator.visible { display: block; }
+  .page-break-tag {
+    position: absolute;
+    top: 0;
+    right: 0;
+    transform: translateY(-100%);
+    background: #c0392b;
+    color: white;
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 4px 4px 0 0;
+    white-space: nowrap;
+  }
+
   /* Job counter badge */
   .job-counter {
     font-size: 10px;
@@ -390,6 +425,14 @@
     text-transform: uppercase;
     margin-bottom: 16px;
     align-self: flex-start;
+  }
+
+  /* Wraps the paper so the page-break indicator can be absolutely positioned over it
+     without ever being written into #resume-output (which render() overwrites). */
+  .resume-paper-wrap {
+    position: relative;
+    width: 760px;
+    flex-shrink: 0;
   }
 
   /* Resume paper — `--rf-*` custom properties are swapped by fit presets (compact → spacious) */
@@ -584,9 +627,10 @@
 
   /* Print / Export — hides editor and toolbar; only `.resume-paper` prints */
   @media print {
-    .topbar, .editor, .preview-label, .fit-toolbar, .ats-overlay { display: none !important; }
+    .topbar, .editor, .preview-label, .fit-toolbar, .ats-overlay, .page-break-indicator { display: none !important; }
     .workspace { display: block; height: auto; }
     .preview { background: white; padding: 0; }
+    .resume-paper-wrap { width: 100%; }
     .resume-paper { box-shadow: none; width: 100%; }
     body { background: white; }
   }
@@ -988,7 +1032,15 @@
       </div>
     </div>
 
-    <div class="resume-paper" id="resume-output"></div>
+    <div class="resume-paper-wrap">
+      <div class="resume-paper" id="resume-output"></div>
+      <!-- Shows exactly where page 2 would start when content runs long — purely a
+           visual aid; lives outside #resume-output so render() never wipes it and
+           it never gets copied into the Word/PDF export. -->
+      <div class="page-break-indicator" id="page-break-indicator">
+        <div class="page-break-tag">Page 2 starts here ↓</div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -2208,7 +2260,6 @@ function renderCustomSections() {
 }
 
 // ===== OVERFLOW CHECK =====
-/** Heuristic line count — warns if resume likely exceeds one printed page */
 /** Real measurement: does the rendered resume body exceed the current page size's
  *  one-page target height? Reads live layout, so it covers the sidebar (certs, education,
  *  skills, info) and the main column (summary, jobs, custom sections) equally — no guessing. */
@@ -2220,6 +2271,24 @@ function isResumeOverflowing() {
   return body.getBoundingClientRect().height > targetHeight + 1; // +1px rounding tolerance
 }
 
+/** Position the page-break overlay at the exact pixel row where a 2nd page would
+ *  start, so staff can SEE what's spilling over — not just be told it's overflowing. */
+function updatePageBreakIndicator(overflowing) {
+  const indicator = document.getElementById('page-break-indicator');
+  const wrap = document.querySelector('.resume-paper-wrap');
+  const body = document.querySelector('#resume-output .r-body');
+  if (!indicator) return;
+  if (!overflowing || !wrap || !body) {
+    indicator.classList.remove('visible');
+    return;
+  }
+  const cfg = PAGE_SIZES[state.pageSize] || PAGE_SIZES.letter;
+  const targetHeight = parseFloat(cfg.bodyHeight);
+  const lineY = (body.getBoundingClientRect().top - wrap.getBoundingClientRect().top) + targetHeight;
+  indicator.style.top = lineY + 'px';
+  indicator.classList.add('visible');
+}
+
 // Tracks the last known state so the toast fires once, right when an edit pushes the
 // resume past one page — not on every keystroke while it's already overflowing.
 let wasOverflowing = false;
@@ -2228,6 +2297,7 @@ function checkOverflow() {
   const overflowing = isResumeOverflowing();
   const warning = document.getElementById('overflow-warning');
   if (warning) warning.classList.toggle('visible', overflowing);
+  updatePageBreakIndicator(overflowing);
   if (overflowing && !wasOverflowing) {
     showToast('⚠ This resume now runs longer than one page — consider trimming content.', 'warn');
   }
