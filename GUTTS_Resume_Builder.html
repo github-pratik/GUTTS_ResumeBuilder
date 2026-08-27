@@ -541,6 +541,15 @@
     font-family: 'DM Mono', monospace;
   }
   .r-sidebar-item { font-size: var(--rf-base); color: #333; margin-bottom: var(--rf-item-gap); line-height: var(--rf-lh); }
+  /* Technical/Soft Skills shrink on their own as more get added — set per-render from
+     skill count, independent of the active Resume Fit preset (--rf-skills-base/-gap
+     fall back to the normal sidebar sizing when there aren't many skills yet). */
+  .r-skills-item {
+    font-size: var(--rf-skills-base, var(--rf-base));
+    color: #333;
+    margin-bottom: var(--rf-skills-gap, var(--rf-item-gap));
+    line-height: var(--rf-lh);
+  }
   .r-edu-entry  { margin-bottom: 6px; }
   .r-edu-entry:last-child { margin-bottom: 0; }
   .r-edu-degree { font-size: var(--rf-base); font-weight: 600; color: #1a2332; margin-bottom: 1px; }
@@ -1112,7 +1121,7 @@
 // Caps keep content on a single printed page
 const MAX_JOBS = 7;
 const MAX_BULLETS = 7;
-const MAX_SKILLS = 20;
+const MAX_SKILLS = 30;
 const MAX_CERTS = 8;
 const MAX_EDUCATION = 4;
 const MAX_CUSTOM_SECTIONS = 2;
@@ -2567,6 +2576,21 @@ function checkOverflow() {
 /** Read a form field value by element id */
 function g(id) { return (document.getElementById(id) || {}).value || ''; }
 
+/** Technical + Soft Skills shrink FURTHER than whatever the active Resume Fit preset
+ *  already sets, once the combined skill count climbs past a normal resume's worth —
+ *  so Certificates, Education, and the main column stay exactly at the preset's size
+ *  no matter how many skills get added. Below the threshold, skills match the preset
+ *  exactly (both default templates sit at 17-18 combined, comfortably under it, so
+ *  this is invisible until someone actually adds a meaningful number of extra skills). */
+function getSkillsSizing(count, presetBasePx, presetGapPx) {
+  const THRESHOLD = 20;
+  if (count <= THRESHOLD) return { base: presetBasePx + 'px', gap: presetGapPx + 'px' };
+  const notches = Math.ceil((count - THRESHOLD) / 6); // one notch tighter every 6 extra skills
+  const base = Math.max(presetBasePx - notches * 0.75, 7.5);
+  const gap  = Math.max(presetGapPx  - notches * 0.5,  0.5);
+  return { base: base.toFixed(2) + 'px', gap: gap.toFixed(2) + 'px' };
+}
+
 /** Main preview update — merges form fields + state into #resume-output HTML */
 function render() {
   const name     = g('f-name')       || 'STUDENT NAME';
@@ -2577,9 +2601,19 @@ function render() {
   const gradDate = g('f-grad-date')  || currentMonthYear();
 
   const certHtml = state.certs.map(c => `<div class="r-sidebar-item">${escHtml(c)}</div>`).join('');
-  const techHtml = state.techSkills.map(s => `<div class="r-sidebar-item">${escHtml(s)}</div>`).join('');
-  const softHtml = state.softSkills.map(s => `<div class="r-sidebar-item">${escHtml(s)}</div>`).join('');
+  const techHtml = state.techSkills.map(s => `<div class="r-skills-item">${escHtml(s)}</div>`).join('');
+  const softHtml = state.softSkills.map(s => `<div class="r-skills-item">${escHtml(s)}</div>`).join('');
   const infoHtml = state.info.map(s => `<div class="r-sidebar-item">${escHtml(s)}</div>`).join('');
+
+  // Technical + Soft Skills shrink further than the active preset once the list gets
+  // long — Certificates, Education, and the main column stay exactly at preset size.
+  const outputEl = document.getElementById('resume-output');
+  const presetCS = getComputedStyle(outputEl);
+  const presetBasePx = parseFloat(presetCS.getPropertyValue('--rf-base')) || 12;
+  const presetGapPx  = parseFloat(presetCS.getPropertyValue('--rf-item-gap')) || 3;
+  const skillsSizing = getSkillsSizing(state.techSkills.length + state.softSkills.length, presetBasePx, presetGapPx);
+  outputEl.style.setProperty('--rf-skills-base', skillsSizing.base);
+  outputEl.style.setProperty('--rf-skills-gap', skillsSizing.gap);
   // Year (like job Location) only prints when actually filled in — no placeholder text
   const eduHtml = state.education.map(edu => `
     <div class="r-edu-entry">
@@ -2690,6 +2724,8 @@ function exportWord() {
   const title   = cs.getPropertyValue('--rf-title').trim()   || '13px';
   const contact = cs.getPropertyValue('--rf-contact').trim() || '13px';
   const lh      = cs.getPropertyValue('--rf-lh').trim()      || '1.45';
+  const skillsBase = cs.getPropertyValue('--rf-skills-base').trim() || base;
+  const skillsGap  = cs.getPropertyValue('--rf-skills-gap').trim()  || '2px';
 
   const css = `
     body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
@@ -2702,6 +2738,7 @@ function exportWord() {
     .r-sidebar-section { margin-bottom: 14px; }
     .r-sidebar-title { font-size: 8px; font-weight: 700; color: #2D4B6E; text-transform: uppercase; letter-spacing: 0.8px; border-bottom: 1px solid #dde3ec; padding-bottom: 4px; margin-bottom: 6px; }
     .r-sidebar-item { font-size: ${base}; color: #333; margin-bottom: 2px; line-height: ${lh}; }
+    .r-skills-item { font-size: ${skillsBase}; color: #333; margin-bottom: ${skillsGap}; line-height: ${lh}; }
     .r-edu-entry  { margin-bottom: 6px; }
     .r-edu-degree { font-size: ${base}; font-weight: 600; color: #1a2332; }
     .r-edu-school { font-size: ${sm}; color: #555; font-style: italic; }
