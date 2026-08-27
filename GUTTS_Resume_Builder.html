@@ -785,7 +785,8 @@
     <button class="btn btn-ghost" onclick="openImportResume()">📥 Import Resume</button>
     <button class="btn btn-ghost" onclick="openATSCheck()">🎯 ATS Check</button>
     <button class="btn btn-ghost" onclick="exportWord()">⬇ Word Doc</button>
-    <button class="btn btn-accent" onclick="exportPDF()">⬇ Export PDF</button>
+    <button class="btn btn-ghost" onclick="printResume()">🖨 Print</button>
+    <button class="btn btn-accent" onclick="printResume()">⬇ Export PDF</button>
   </div>
 </div>
 
@@ -2501,8 +2502,10 @@ function render() {
 
 // ===== EXPORT =====
 /** Validate required fields, then open browser print dialog (Save as PDF) */
-function exportPDF() {
-  // Validate before export
+/** Shared by both the "Print" and "Export PDF" buttons — window.print() lets the
+ *  user pick an actual printer OR "Save as PDF" from the same OS/browser dialog. */
+function printResume() {
+  // Validate before printing/exporting
   const phone = g('f-phone');
   const email = g('f-email');
   const name = g('f-name');
