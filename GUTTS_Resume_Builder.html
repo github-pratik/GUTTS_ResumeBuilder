@@ -520,12 +520,21 @@
     display: grid;
     grid-template-columns: 190px 1fr;
     min-height: 900px;
+    /* Paints the sidebar color (and its border line) on the PARENT rather than relying
+       on .r-sidebar's own box stretching to match .r-main's height. CSS Grid's default
+       equal-height stretch is not reliable once content is fragmented across a print
+       page break — a shorter sidebar column can stop coloring early on the page where
+       it runs out, even though the taller main column keeps going, leaving a blank
+       white gap at the bottom of the sidebar. A background painted here doesn't depend
+       on grid stretch surviving fragmentation, so it always covers the full height. */
+    background: linear-gradient(to right,
+      #EEF2F7 0, #EEF2F7 189px,
+      #dde3ec 189px, #dde3ec 190px,
+      #ffffff 190px, #ffffff 100%);
   }
 
   .r-sidebar {
-    background: #EEF2F7;
     padding: var(--rf-sidebar-pv) var(--rf-sidebar-ph);
-    border-right: 1px solid #dde3ec;
   }
 
   .r-sidebar-section { margin-bottom: var(--rf-section-gap); }
@@ -690,7 +699,7 @@
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
-  .r-sidebar {
+  .r-body {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
