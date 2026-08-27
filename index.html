@@ -189,6 +189,19 @@
   }
   .tag-remove { cursor: pointer; color: var(--muted); font-size: 14px; line-height: 1; }
   .tag-remove:hover { color: #c0392b; }
+  .tag-text { cursor: pointer; }
+  .tag-text:hover { text-decoration: underline; text-decoration-style: dotted; }
+  .tag-edit-input {
+    border: none;
+    outline: none;
+    background: white;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 12px;
+    color: var(--text);
+    padding: 0;
+    min-width: 40px;
+    /* width is set inline per-instance to roughly fit its own content */
+  }
   .tag-add-row { display: flex; gap: 6px; }
   .tag-add-row input {
     flex: 1;
@@ -1143,7 +1156,7 @@ const templates = {
     summary: 'Motivated HVACR pre-apprentice with 72 hours of PHCC & DPOR accredited hands-on training in heating, cooling, and refrigeration systems. Skilled in troubleshooting, electrical safety, and equipment installation with a strong commitment to professionalism and continuous growth in the skilled trades.',
   },
   plumbing: {
-    techSkills: ['Basic Troubleshooting','Hand and power tools','Electrical Safety','Copper Pipe Installation','Steel Pipe Installation','PVC Installation','CPVC Installation','Cast Iron Pipe Installation','PEX A Installation','Gas Pipe Installation','Fluid Dynamics / Rough-ins','Drain-Waste-Vent Systems','Fixture Installation'],
+    techSkills: ['Basic Troubleshooting','Hand and power tools','Electrical Safety','Copper Pipe Installation','Steel Pipe Installation','PVC, CPVC, Cast Iron, and PEX-A Installation','Gas Pipe Installation','Fluid Dynamics / Rough-ins','Drain-Waste-Vent Systems','Fixture Installation'],
     softSkills: ['Teamwork','Time Management','Problem Solving','Attention to Detail','Eagerness to Learn','Written & Verbal Communication','Customer Service'],
     certs: ['GUTTS Plumbing 72-hour Pre-Apprenticeship Program','State of Virginia DPOR Accredited Training','PHCC Accreditation for Pre-Apprenticeship Program'],
     info: ["Driver's License: Yes", "US Citizen: Yes"],
@@ -1974,13 +1987,64 @@ function getArr(type) {
        : state.info;
 }
 
-/** Paint tag chips in the editor for tech | soft | cert | info */
+/** Same per-type character caps as the "+ Add" inputs, reused when editing a tag in place */
+function getTagMaxLength(type) {
+  return type === 'cert' ? 80 : type === 'info' ? 60 : 50;
+}
+
+/** Paint tag chips in the editor for tech | soft | cert | info — click the text to edit in place */
 function renderTags(type) {
   const container = document.getElementById(type + '-tags');
   const arr = getArr(type);
   container.innerHTML = arr.map((item, i) =>
-    `<div class="tag">${escHtml(item)}<span class="tag-remove" onclick="removeTag('${type}',${i})">×</span></div>`
+    `<div class="tag" id="tag-${type}-${i}">
+      <span class="tag-text" onclick="editTag('${type}',${i})" title="Click to edit">${escHtml(item)}</span>
+      <span class="tag-remove" onclick="removeTag('${type}',${i})" title="Remove">×</span>
+    </div>`
   ).join('');
+}
+
+/** Swap one tag's text for an inline input so it can be edited without deleting + retyping */
+function editTag(type, idx) {
+  const arr = getArr(type);
+  const tagEl = document.getElementById(`tag-${type}-${idx}`);
+  if (!tagEl || arr[idx] === undefined) return;
+  const current = arr[idx];
+  const maxLen = getTagMaxLength(type);
+
+  tagEl.innerHTML = `<input type="text" class="tag-edit-input" value="${escAttr(current)}" maxlength="${maxLen}"
+    onkeydown="if(event.key==='Enter'){this.blur();} else if(event.key==='Escape'){this.dataset.cancel='1';this.blur();}"
+    onblur="saveTagEdit('${type}',${idx},this)">`;
+  const input = tagEl.querySelector('input');
+  input.style.width = Math.max(current.length, 4) + 2 + 'ch';
+  input.addEventListener('input', () => { input.style.width = Math.max(input.value.length, 4) + 2 + 'ch'; });
+  input.focus();
+  input.select();
+}
+
+/** Commit (or cancel, or delete-if-emptied) an in-place tag edit, then re-render */
+function saveTagEdit(type, idx, input) {
+  if (input.dataset.cancel === '1') { renderTags(type); return; }
+  const arr = getArr(type);
+  const val = input.value.trim();
+
+  if (!val) {
+    arr.splice(idx, 1);
+    renderTags(type);
+    render();
+    return;
+  }
+
+  const isDuplicate = arr.some((item, i) => i !== idx && item.toLowerCase() === val.toLowerCase());
+  if (isDuplicate) {
+    showToast(`"${val}" is already in the list.`, 'warn');
+    renderTags(type);
+    return;
+  }
+
+  arr[idx] = val;
+  renderTags(type);
+  render();
 }
 
 // ===== EDUCATION =====
