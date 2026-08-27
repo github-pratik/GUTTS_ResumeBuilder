@@ -780,6 +780,7 @@
     </div>
   </div>
   <div class="topbar-actions">
+    <button class="btn btn-ghost" onclick="startNewResume()" title="Clear everything and start a new resume">🗑 New Resume</button>
     <button class="btn btn-ghost" onclick="loadTemplate('hvac')">Load HVAC Template</button>
     <button class="btn btn-ghost" onclick="loadTemplate('plumbing')">Load Plumbing Template</button>
     <button class="btn btn-ghost" onclick="openImportResume()">📥 Import Resume</button>
@@ -1124,7 +1125,8 @@ function currentMonthYear() {
 }
 
 // ===== STATE =====
-// In-memory model; not persisted — refresh resets unless user re-enters data
+// In-memory model; auto-saved to localStorage on every render() so a reload/accidental
+// close restores exactly where you left off (see saveDraft/loadDraft/restoreDraft below).
 let state = {
   program: 'hvac',
   pageSize: 'letter',
@@ -1137,6 +1139,102 @@ let state = {
   jobs: [],
   customSections: []
 };
+
+// ===== DRAFT PERSISTENCE =====
+// Everything lives in one localStorage entry — plain form fields (name/contact/grad
+// date) aren't part of `state`, so they're captured separately alongside it.
+const DRAFT_KEY = 'gutts-resume-draft-v1';
+
+/** Snapshot state + the plain form fields into localStorage. Silently no-ops if
+ *  storage is unavailable (private browsing, quota, etc.) — persistence is a nicety,
+ *  never something that should break editing. */
+function saveDraft() {
+  try {
+    const draft = {
+      state: {
+        program: state.program, pageSize: state.pageSize, summary: state.summary,
+        techSkills: state.techSkills, softSkills: state.softSkills, certs: state.certs,
+        info: state.info, education: state.education, jobs: state.jobs,
+        customSections: state.customSections,
+      },
+      preset: currentPreset,
+      fields: {
+        name: g('f-name'), phone: g('f-phone'), email: g('f-email'),
+        city: g('f-city'), stateAbbr: g('f-state'), gradDate: g('f-grad-date'),
+      },
+    };
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  } catch (e) { /* storage unavailable — nothing to do */ }
+}
+
+function loadDraft() {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+
+function clearDraft() {
+  try { localStorage.removeItem(DRAFT_KEY); } catch (e) { /* nothing to do */ }
+}
+
+/** Restore a saved draft into state + the DOM. Returns false (and leaves state alone)
+ *  if the draft is missing or malformed, so the caller can fall back to a fresh template. */
+function restoreDraft(draft) {
+  if (!draft || !draft.state) return false;
+  const s = draft.state;
+  state.program = s.program || 'hvac';
+  state.pageSize = s.pageSize || 'letter';
+  state.summary = s.summary || '';
+  state.techSkills = Array.isArray(s.techSkills) ? s.techSkills : [];
+  state.softSkills = Array.isArray(s.softSkills) ? s.softSkills : [];
+  state.certs = Array.isArray(s.certs) ? s.certs : [];
+  state.info = Array.isArray(s.info) ? s.info : [];
+  state.education = Array.isArray(s.education) && s.education.length
+    ? s.education : [{ id: Date.now(), degree: '', school: '', city: '', year: '' }];
+  state.jobs = Array.isArray(s.jobs) ? s.jobs : [];
+  state.customSections = Array.isArray(s.customSections) ? s.customSections : [];
+
+  const f = draft.fields || {};
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+  set('f-name', f.name);
+  set('f-phone', f.phone);
+  set('f-email', f.email);
+  set('f-city', f.city);
+  set('f-state', f.stateAbbr);
+  set('f-grad-date', f.gradDate);
+  set('f-summary', state.summary);
+
+  const radio = document.querySelector(`input[name="prog"][value="${state.program}"]`);
+  if (radio) radio.checked = true;
+
+  renderTags('tech'); renderTags('soft'); renderTags('cert'); renderTags('info');
+  renderEducation();
+  renderJobs();
+  renderCustomSections();
+  applyPreset(draft.preset || 'normal');
+  setPageSize(state.pageSize, true);
+  render();
+  return true;
+}
+
+/** Wipe the saved draft and every field, then load a fresh HVAC template — for staff
+ *  moving on to a new student, so the previous one's data doesn't carry over. */
+function startNewResume() {
+  if (!confirm('Start a new resume? This clears everything currently on screen — name, contact info, education, all jobs. Export or print first if you still need this one.')) return;
+  clearDraft();
+  ['f-name', 'f-phone', 'f-email', 'f-city', 'f-state', 'f-grad-date'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  state.education = [];
+  state.jobs = [];
+  state.customSections = [];
+  loadTemplate('hvac');
+  applyPreset('normal');
+  setPageSize('letter', true);
+  showToast('Started a new resume.', 'info');
+}
 
 // ===== TEMPLATES =====
 // Pre-filled HVAC vs Plumbing copy for GUTTS 72-hour pre-apprenticeship graduates
@@ -2528,10 +2626,10 @@ function render() {
   `;
 
   checkOverflow();
+  saveDraft();
 }
 
 // ===== EXPORT =====
-/** Validate required fields, then open browser print dialog (Save as PDF) */
 /** Shared by both the "Print" and "Export PDF" buttons — window.print() lets the
  *  user pick an actual printer OR "Save as PDF" from the same OS/browser dialog. */
 function printResume() {
@@ -2809,9 +2907,14 @@ function autoFit() {
 }
 
 // ===== INIT =====
-// Boot with HVAC defaults; user can switch to Plumbing via template button or radio
-loadTemplate('hvac');
-setPageSize('letter', true);
+// Restore a saved draft if one survived a reload/accidental close; otherwise boot with
+// HVAC defaults as before. User can switch to Plumbing via template button or radio.
+if (restoreDraft(loadDraft())) {
+  showToast('Restored your unsaved draft from last time.', 'info');
+} else {
+  loadTemplate('hvac');
+  setPageSize('letter', true);
+}
 </script>
 </body>
 </html>
