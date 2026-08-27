@@ -2351,15 +2351,45 @@ function renderCustomSections() {
 }
 
 // ===== OVERFLOW CHECK =====
-/** Real measurement: does the rendered resume body exceed the current page size's
- *  one-page target height? Reads live layout, so it covers the sidebar (certs, education,
- *  skills, info) and the main column (summary, jobs, custom sections) equally — no guessing. */
+// True physical page size in CSS px (96px/inch — the reference browsers always use for
+// @page sizing, independent of a printer's actual raster DPI). Used ONLY to predict real
+// print/export pagination accurately — separate from PAGE_SIZES.bodyHeight below, which
+// sizes the live editor's fixed-width box and the page-2 preview overlay.
+const PRINT_PAGE_SIZES = {
+  letter: { width: 816,   height: 1056   }, // 8.5in × 11in
+  a4:     { width: 793.7, height: 1122.5 }, // 210mm × 297mm
+};
+
+/** Does the resume actually overflow one printed/exported page? At print time
+ *  `.resume-paper` goes to width:100% (the real page width), which is noticeably wider
+ *  than the editor's fixed 760px — the main column gets more room, bullets wrap onto
+ *  fewer lines, and the real printed page ends up shorter than the live preview suggests.
+ *  So this renders a hidden probe at the TRUE print width and measures THAT, instead of
+ *  measuring the 760px-wide live layout — which was over-warning on real content. */
 function isResumeOverflowing() {
-  const body = document.querySelector('#resume-output .r-body');
-  if (!body) return false;
-  const cfg = PAGE_SIZES[state.pageSize] || PAGE_SIZES.letter;
-  const targetHeight = parseFloat(cfg.bodyHeight);
-  return body.getBoundingClientRect().height > targetHeight + 1; // +1px rounding tolerance
+  const output = document.getElementById('resume-output');
+  if (!output) return false;
+
+  const cfg = PRINT_PAGE_SIZES[state.pageSize] || PRINT_PAGE_SIZES.letter;
+
+  let probe = document.getElementById('overflow-probe');
+  if (!probe) {
+    probe = document.createElement('div');
+    probe.id = 'overflow-probe';
+    probe.setAttribute('aria-hidden', 'true');
+    probe.style.cssText = 'position:absolute; top:-99999px; left:-99999px; visibility:hidden; pointer-events:none;';
+    document.body.appendChild(probe);
+  }
+  probe.className = 'resume-paper';
+  probe.style.boxShadow = 'none';
+  probe.style.width = cfg.width + 'px';
+  // Match the active Resume Fit preset's font/spacing custom properties exactly
+  for (const prop of output.style) {
+    probe.style.setProperty(prop, output.style.getPropertyValue(prop));
+  }
+  probe.innerHTML = output.innerHTML;
+
+  return probe.scrollHeight > cfg.height + 1; // +1px rounding tolerance
 }
 
 /** Word-style page preview: clip page 1 to exactly one page tall, then build a real
