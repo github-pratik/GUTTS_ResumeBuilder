@@ -488,7 +488,7 @@
     --rf-section-gap: 16px;
     --rf-item-gap:    3px;
     --rf-sidebar-pv:  18px;
-    --rf-sidebar-ph:  14px;
+    --rf-sidebar-ph:  18px;
     --rf-main-pv:     18px;
     --rf-main-ph:     22px;
   }
@@ -2742,7 +2742,7 @@ function exportWord() {
     .r-name { font-size: 32px; color: #ffffff; letter-spacing: 2px; text-transform: uppercase; font-weight: bold; display: block; }
     .r-contact-bar { background: #e8edf4; padding: 7px 20px; text-align: center; font-size: ${contact}; color: #444; }
     .r-body { width: 100%; border-collapse: collapse; }
-    .r-sidebar { width: 190px; background: #EEF2F7; padding: 18px 14px; vertical-align: top; border-right: 1px solid #dde3ec; }
+    .r-sidebar { width: 190px; background: #EEF2F7; padding: 18px 18px; vertical-align: top; border-right: 1px solid #dde3ec; }
     .r-main { padding: 18px 22px; vertical-align: top; }
     .r-sidebar-section { margin-bottom: 14px; }
     .r-sidebar-title { font-size: 8px; font-weight: 700; color: #2D4B6E; text-transform: uppercase; letter-spacing: 0.8px; border-bottom: 1px solid #dde3ec; padding-bottom: 4px; margin-bottom: 6px; }
@@ -2831,9 +2831,9 @@ const PRESETS = {
     '--rf-section-gap': '10px',
     '--rf-item-gap':    '2px',
     '--rf-sidebar-pv':  '14px',
-    '--rf-sidebar-ph':  '10px',
+    '--rf-sidebar-ph':  '16px', // >=0.16in from the true edge — safe margin for real printers
     '--rf-main-pv':     '14px',
-    '--rf-main-ph':     '16px',
+    '--rf-main-ph':     '18px',
   },
   normal: {
     '--rf-base':        '12px',
@@ -2846,7 +2846,7 @@ const PRESETS = {
     '--rf-section-gap': '16px',
     '--rf-item-gap':    '3px',
     '--rf-sidebar-pv':  '18px',
-    '--rf-sidebar-ph':  '14px',
+    '--rf-sidebar-ph':  '18px', // 0.1875in from the true edge — safe margin for real printers
     '--rf-main-pv':     '18px',
     '--rf-main-ph':     '22px',
   },
