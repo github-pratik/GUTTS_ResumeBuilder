@@ -46,17 +46,20 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
+    row-gap: 10px;
     position: sticky;
     top: 0;
     z-index: 100;
     box-shadow: 0 2px 12px rgba(0,0,0,0.18);
   }
-  .topbar-brand { display: flex; align-items: center; gap: 12px; }
+  .topbar-brand { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
   .topbar-logo {
     font-family: 'Playfair Display', serif;
     font-size: 22px;
     color: white;
     letter-spacing: 1px;
+    white-space: nowrap;
   }
   .topbar-logo span { color: var(--accent); }
   .topbar-sub {
@@ -65,16 +68,21 @@
     font-family: 'DM Mono', monospace;
     letter-spacing: 0.5px;
   }
-  .topbar-actions { display: flex; gap: 10px; }
+  /* Wraps onto a 2nd row (staying right-aligned) instead of squeezing the logo or
+     forcing button labels to wrap mid-word — there are enough buttons now that one
+     row won't always fit. */
+  .topbar-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; row-gap: 8px; justify-content: flex-end; }
+  .topbar-divider { width: 1px; height: 22px; background: rgba(255,255,255,0.18); flex-shrink: 0; }
 
   .btn {
-    padding: 8px 18px;
+    padding: 8px 16px;
     border-radius: 6px;
     font-family: 'DM Sans', sans-serif;
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
     border: none;
+    white-space: nowrap;
     transition: all 0.15s;
   }
   .btn-ghost {
@@ -780,12 +788,15 @@
     </div>
   </div>
   <div class="topbar-actions">
-    <button class="btn btn-ghost" onclick="startNewResume()" title="Clear everything and start a new resume">🗑 New Resume</button>
-    <button class="btn btn-ghost" onclick="loadTemplate('hvac')">Load HVAC Template</button>
-    <button class="btn btn-ghost" onclick="loadTemplate('plumbing')">Load Plumbing Template</button>
-    <button class="btn btn-ghost" onclick="openImportResume()">📥 Import Resume</button>
+    <button class="btn btn-ghost" onclick="startNewResume()" title="Clear everything and start a new resume">🗑 New</button>
+    <div class="topbar-divider"></div>
+    <button class="btn btn-ghost" onclick="loadTemplate('hvac')">HVAC Template</button>
+    <button class="btn btn-ghost" onclick="loadTemplate('plumbing')">Plumbing Template</button>
+    <div class="topbar-divider"></div>
+    <button class="btn btn-ghost" onclick="openImportResume()">📥 Import</button>
     <button class="btn btn-ghost" onclick="openATSCheck()">🎯 ATS Check</button>
-    <button class="btn btn-ghost" onclick="exportWord()">⬇ Word Doc</button>
+    <div class="topbar-divider"></div>
+    <button class="btn btn-ghost" onclick="exportWord()">⬇ Word</button>
     <button class="btn btn-ghost" onclick="printResume()">🖨 Print</button>
     <button class="btn btn-accent" onclick="printResume()">⬇ Export PDF</button>
   </div>
