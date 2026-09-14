@@ -790,6 +790,21 @@
     line-height: 1.5; cursor: pointer;
   }
   .import-exact-toggle input { margin-top: 2px; width: auto; flex-shrink: 0; }
+
+  /* ===== MCP CONNECT MODAL ===== */
+  .mcp-url-row { display: flex; gap: 8px; margin: 8px 0 16px; }
+  .mcp-url-box {
+    flex: 1; min-width: 0; background: var(--sidebar-bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 10px 12px; font-family: 'DM Mono', monospace; font-size: 12.5px;
+    color: var(--text); overflow-x: auto; white-space: nowrap;
+  }
+  .mcp-copy-btn { flex-shrink: 0; }
+  .mcp-steps { margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.8; color: var(--text); }
+  .mcp-steps li { margin-bottom: 4px; }
+  .mcp-note {
+    margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border);
+    font-size: 12px; color: var(--muted); line-height: 1.6;
+  }
 </style>
 </head>
 <body>
@@ -817,6 +832,8 @@
     <button class="btn btn-ghost" onclick="exportWord()">⬇ Word</button>
     <button class="btn btn-ghost" onclick="printResume()">🖨 Print</button>
     <button class="btn btn-accent" onclick="printResume()">⬇ Export PDF</button>
+    <div class="topbar-divider"></div>
+    <button class="btn btn-ghost" onclick="openMcpInfo()" title="Connect this site to Claude via MCP">🔌 Connect to Claude</button>
   </div>
 </div>
 
@@ -870,6 +887,45 @@
       </div>
       <button class="btn btn-accent ats-check-btn" onclick="runATSCheck()">Check My Match</button>
       <div class="ats-results" id="ats-results"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Connect-to-Claude modal: read-only setup info for the remote MCP server that lets
+     Claude drive this site directly. Deliberately never shows the access token here —
+     this page is public with no login, so the token stays in the team's internal Company
+     Passwords doc instead (referenced by name only, not linked, so the public page doesn't
+     broadcast that doc's URL either). -->
+<div class="ats-overlay" id="mcp-overlay" onclick="if(event.target===this) closeMcpInfo()">
+  <div class="ats-modal">
+    <div class="ats-modal-header">
+      <div class="ats-modal-title">🔌 CONNECT TO CLAUDE</div>
+      <button class="ats-modal-close" onclick="closeMcpInfo()">×</button>
+    </div>
+    <div class="ats-modal-body">
+      <div class="field-hint" style="margin-bottom:4px">
+        This site has a remote MCP (Model Context Protocol) server that lets Claude drive it
+        directly — filling in a resume, running an ATS check, exporting a PDF — the same way a
+        person clicking around would. Each conversation gets its own private, isolated session.
+      </div>
+      <div class="ats-group-title" style="margin-top:16px">MCP Endpoint URL</div>
+      <div class="mcp-url-row">
+        <div class="mcp-url-box" id="mcp-url-box">https://gutts-resume-mcp.onrender.com/mcp</div>
+        <button class="btn btn-ghost mcp-copy-btn" onclick="copyMcpUrl()">Copy</button>
+      </div>
+      <div class="ats-group-title">Setup</div>
+      <ol class="mcp-steps">
+        <li>In Claude, add a new remote MCP connector.</li>
+        <li>Paste in the URL above.</li>
+        <li>Set an <code>Authorization: Bearer &lt;token&gt;</code> header — <strong>GUTTS staff:</strong>
+          the token is in our internal <em>Company Passwords</em> doc (ask your manager if you
+          don't have access). It's kept out of this page on purpose, since this page is public.</li>
+      </ol>
+      <div class="mcp-note">
+        The token is a shared secret for this server only — it doesn't grant access to any
+        GUTTS account, email, or CRM data. Each MCP session is just a private browser tab on
+        this same public site.
+      </div>
     </div>
   </div>
 </div>
@@ -1454,6 +1510,25 @@ function openATSCheck() {
 }
 function closeATSCheck() {
   document.getElementById('ats-overlay').classList.remove('open');
+}
+
+function openMcpInfo() {
+  document.getElementById('mcp-overlay').classList.add('open');
+}
+function closeMcpInfo() {
+  document.getElementById('mcp-overlay').classList.remove('open');
+}
+function copyMcpUrl() {
+  const url = document.getElementById('mcp-url-box').textContent.trim();
+  if (!navigator.clipboard) {
+    showToast('Could not copy automatically — select the URL and copy it manually.', 'warn');
+    return;
+  }
+  navigator.clipboard.writeText(url).then(() => {
+    showToast('MCP URL copied to clipboard.', 'info');
+  }).catch(() => {
+    showToast('Could not copy automatically — select the URL and copy it manually.', 'warn');
+  });
 }
 
 function runATSCheck() {

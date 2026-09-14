@@ -438,6 +438,35 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", site: SITE_URL, activeSessions: listSessionIds().length });
 });
 
+// A friendly landing page + a helpful response for a browser visiting /mcp directly (this is
+// an MCP endpoint meant to be called by an MCP client via POST, not opened in a browser) -
+// without these, both just 404 with Express's bare "Cannot GET ..." text, which reads as a
+// broken deployment to anyone who clicks the URL.
+app.get("/", (_req, res) => {
+  res.type("text/plain").send(
+    "GUTTS Resume Builder MCP server\n\n" +
+    "This is a Model Context Protocol server, not a web page - there's nothing to browse to " +
+    `here. It drives ${SITE_URL} for Claude.\n\n` +
+    "To connect it: add it as a remote MCP connector using this URL with /mcp appended, " +
+    "sending your token as \"Authorization: Bearer <token>\".\n\n" +
+    "Health check: /health"
+  );
+});
+
+app.get("/mcp", (_req, res) => {
+  res.status(405).json({
+    jsonrpc: "2.0",
+    error: {
+      code: -32000,
+      message:
+        "This endpoint only accepts POST requests carrying MCP JSON-RPC messages - it's not " +
+        "meant to be opened in a browser. If you're setting up a connector, double-check your " +
+        "client is configured to POST here with an Authorization: Bearer header.",
+    },
+    id: null,
+  });
+});
+
 // Stateless Streamable HTTP: a fresh transport per request. This server's own "sessions"
 // (browser tabs, tracked by session_id) are an application-level concept threaded through
 // tool arguments — they're independent of the MCP transport's own request/response cycle.
