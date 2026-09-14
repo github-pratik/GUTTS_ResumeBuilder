@@ -381,7 +381,11 @@ server.registerTool(
     return {
       content: [
         { type: "text", text: `${warning}Exported ${filename}.` },
-        { type: "resource", resource: { uri: filename, mimeType: "application/pdf", blob: base64 } },
+        {
+          type: "resource",
+          resource: { uri: `file:///${filename}`, mimeType: "application/pdf", blob: base64, _meta: {} },
+          _meta: {},
+        },
       ],
     };
   }
@@ -404,7 +408,8 @@ server.registerTool(
         { type: "text", text: `Exported ${filename}.` },
         {
           type: "resource",
-          resource: { uri: filename, mimeType: "application/msword", blob: base64 },
+          resource: { uri: `file:///${filename}`, mimeType: "application/msword", blob: base64, _meta: {} },
+          _meta: {},
         },
       ],
     };
