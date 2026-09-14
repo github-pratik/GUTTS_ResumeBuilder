@@ -14,6 +14,11 @@ import {
   SITE_URL,
 } from "./browserSession.js";
 import * as actions from "./resumeActions.js";
+import { storeDownload, getDownload } from "./downloads.js";
+
+// The server's own public origin, used to build download links returned in tool results.
+// Override via env var if this ever moves off its current Render URL.
+const PUBLIC_URL = process.env.PUBLIC_URL || "https://gutts-resume-mcp.onrender.com";
 
 const server = new McpServer({
   name: "gutts-resume-builder",
@@ -367,8 +372,9 @@ server.registerTool(
     title: "Export the resume as a PDF",
     description:
       "Renders the resume through Chromium's real print engine (the same one behind the " +
-      "site's own Print/Export PDF buttons) and returns it as a PDF file. Warns in the " +
-      "response text if the resume currently overflows one page, but exports anyway.",
+      "site's own Print/Export PDF buttons) and returns a download link for the PDF, valid " +
+      "for 15 minutes. Warns in the response text if the resume currently overflows one page, " +
+      "but exports anyway.",
     inputSchema: { session_id: sessionIdField },
   },
   async ({ session_id }) => {
@@ -378,14 +384,15 @@ server.registerTool(
     const warning = summary.overflowsOnePage
       ? "⚠ This resume is longer than one page and may print across 2 pages.\n\n"
       : "";
+    const id = storeDownload(filename, "application/pdf", Buffer.from(base64, "base64"));
+    const url = `${PUBLIC_URL}/downloads/${id}`;
     return {
       content: [
-        { type: "text", text: `${warning}Exported ${filename}.` },
         {
-          type: "resource",
-          resource: { uri: `file:///${filename}`, mimeType: "application/pdf", blob: base64, _meta: {} },
-          _meta: {},
+          type: "text",
+          text: `${warning}Exported ${filename}. Download it here (link expires in 15 minutes, requires the same Bearer token): ${url}`,
         },
+        { type: "resource_link", uri: url, name: filename, mimeType: "application/pdf" },
       ],
     };
   }
@@ -396,21 +403,22 @@ server.registerTool(
   {
     title: "Export the resume as a Word document",
     description:
-      "Triggers the site's own Word export and returns the resulting .doc file. Requires a " +
-      "name to already be set (call set_personal_info first).",
+      "Triggers the site's own Word export and returns a download link for the .doc file, " +
+      "valid for 15 minutes. Requires a name to already be set (call set_personal_info first).",
     inputSchema: { session_id: sessionIdField },
   },
   async ({ session_id }) => {
     const page = getSessionPage(session_id);
     const { filename, base64 } = await actions.exportWord(page);
+    const id = storeDownload(filename, "application/msword", Buffer.from(base64, "base64"));
+    const url = `${PUBLIC_URL}/downloads/${id}`;
     return {
       content: [
-        { type: "text", text: `Exported ${filename}.` },
         {
-          type: "resource",
-          resource: { uri: `file:///${filename}`, mimeType: "application/msword", blob: base64, _meta: {} },
-          _meta: {},
+          type: "text",
+          text: `Exported ${filename}. Download it here (link expires in 15 minutes, requires the same Bearer token): ${url}`,
         },
+        { type: "resource_link", uri: url, name: filename, mimeType: "application/msword" },
       ],
     };
   }
@@ -441,6 +449,20 @@ app.use(express.json({ limit: "10mb" }));
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", site: SITE_URL, activeSessions: listSessionIds().length });
+});
+
+// Serves a file exported by export_resume_pdf/export_resume_word. Kept behind the same
+// Bearer token as /mcp, since exported resumes carry a student's personal information -
+// the download link isn't meant to be usable by anyone who doesn't already have that token.
+app.get("/downloads/:id", requireAuth, (req, res) => {
+  const entry = getDownload(req.params.id);
+  if (!entry) {
+    res.status(404).send("This download link has expired or doesn't exist - export the resume again to get a fresh one.");
+    return;
+  }
+  res.set("Content-Type", entry.mimeType);
+  res.set("Content-Disposition", `attachment; filename="${entry.filename}"`);
+  res.send(entry.buffer);
 });
 
 // A friendly landing page + a helpful response for a browser visiting /mcp directly (this is
