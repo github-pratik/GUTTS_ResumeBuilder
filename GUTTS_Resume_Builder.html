@@ -915,11 +915,15 @@
       </div>
       <div class="ats-group-title">Setup</div>
       <ol class="mcp-steps">
-        <li>In Claude, add a new remote MCP connector.</li>
-        <li>Paste in the URL above.</li>
-        <li>Set an <code>Authorization: Bearer &lt;token&gt;</code> header — <strong>GUTTS staff:</strong>
-          the token is in our internal <em>Company Passwords</em> doc (ask your manager if you
-          don't have access). It's kept out of this page on purpose, since this page is public.</li>
+        <li>In Claude, add a new remote MCP connector and paste in the URL above.</li>
+        <li>Under <strong>Authentication</strong>, choose <strong>"No sign-in"</strong> — not
+          "Sign in now". This server uses a simple access token, not an OAuth login, so "Sign in
+          now" will fail to connect.</li>
+        <li>Under <strong>Request headers</strong>, click <strong>+ Add header</strong> and enter
+          Name <code>Authorization</code>, Value <code>Bearer &lt;token&gt;</code> —
+          <strong>GUTTS staff:</strong> the token is in our internal <em>Company Passwords</em>
+          doc (ask your manager if you don't have access). It's kept out of this page on
+          purpose, since this page is public.</li>
       </ol>
       <div class="mcp-note">
         The token is a shared secret for this server only — it doesn't grant access to any
