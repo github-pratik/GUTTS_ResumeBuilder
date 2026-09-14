@@ -1,0 +1,51 @@
+<evaluation>
+  <qa_pair>
+    <question>Start a fresh resume session with the HVAC template and one with the Plumbing template (no edits to either). Compare their default Technical Skills counts via get_resume_preview. Which program's template starts with more Technical Skills, and by how many?</question>
+    <answer>HVAC, by 1</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Start a fresh resume session with the HVAC template and one with the Plumbing template (no edits to either). Compare their default Certificates & Accreditations counts via get_resume_preview. Which program's template lists more certifications by default, and how many does it list?</question>
+    <answer>HVAC, 4</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Start a fresh resume session with the Plumbing template and immediately check get_resume_preview, without setting any personal info. What city does the resume show by default?</question>
+    <answer>Fairfax</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Start a fresh resume session with either template and check get_resume_preview without setting personal info. What phone number appears on the resume by default?</question>
+    <answer>844-464-8887</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Start a fresh resume session with the HVAC template. In the resume text returned by get_resume_preview, what is the exact job title shown for the program's built-in Professional Experience entry?</question>
+    <answer>HVACR PRE-APPRENTICESHIP</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Start a fresh HVAC-template resume session (no other edits). Run check_ats_match with this job description: "We are seeking an HVAC Technician with experience in refrigeration cycle diagnostics, electrical safety, brazing and flaring copper tubing, and troubleshooting heating systems. Must have strong customer service and teamwork skills. EPA 608 certification preferred." What scorePercent does the tool report?</question>
+    <answer>100</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Start a fresh HVAC-template resume session (no other edits). Run check_ats_match with this job description: "Looking for a Commercial HVAC Installer with welding certification, forklift operation experience, blueprint reading skills, and OSHA 30 training. Must know electrical safety and troubleshooting. Bilingual Spanish a plus." How many keywords does the tool report as missing from the resume?</question>
+    <answer>2</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Start a fresh resume session with either the HVAC or Plumbing template and immediately call get_resume_preview without adding any content. Does overflows_one_page report true or false?</question>
+    <answer>false</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Start a fresh resume session with any program. Without calling set_resume_fit, what Resume Fit density preset does get_resume_preview report as currently active?</question>
+    <answer>normal</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Start a fresh Plumbing-template resume session and check get_resume_preview without editing Relevant Information. How many entries appear in the Relevant Information section by default, and what are they?</question>
+    <answer>2: Driver's License: Yes, US Citizen: Yes</answer>
+  </qa_pair>
+</evaluation>

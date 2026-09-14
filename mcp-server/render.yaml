@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: gutts-resume-mcp
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: MCP_AUTH_TOKEN
+        sync: false # set manually in the Render dashboard - keep this secret
+      - key: RESUME_BUILDER_URL
+        value: https://gutts-resumebuilder.onrender.com
