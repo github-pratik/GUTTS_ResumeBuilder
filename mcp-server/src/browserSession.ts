@@ -56,6 +56,16 @@ export async function createSession(): Promise<Session> {
   const page = await context.newPage();
   await page.goto(SITE_URL, { waitUntil: "networkidle" });
 
+  // The site loads its fonts (DM Sans/DM Mono/Playfair Display) from Google Fonts with
+  // display=swap - the browser paints a fallback font first, then swaps once the real one
+  // loads. A human always has the real fonts in well before they interact with anything, but
+  // a fresh automated session could call a tool within milliseconds of this goto() resolving.
+  // Without waiting here, every downstream visual read in this session - PDF export,
+  // screenshots, even the JS-based one-page overflow check - could be measuring against the
+  // fallback font's different character widths instead of the real ones. Wait once, up front,
+  // so everything for the rest of this session's life sees what a human would see.
+  await page.evaluate(() => document.fonts.ready);
+
   const id = randomUUID();
   const now = Date.now();
   const session: Session = { id, context, page, createdAt: now, lastUsedAt: now };

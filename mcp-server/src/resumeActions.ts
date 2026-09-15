@@ -265,8 +265,28 @@ export async function getResumeScreenshot(page: Page): Promise<string> {
  * own "Print"/"Export PDF" buttons) — NOT by clicking those buttons, since that opens a
  * native OS dialog Playwright can't drive. preferCSSPageSize lets the page's own
  * `@page { size: ...; margin: 0 }` (set dynamically by the site's Letter/A4 toggle) win.
+ *
+ * The site loads its fonts (DM Sans/DM Mono/Playfair Display) from Google Fonts with
+ * `display=swap`, which renders a fallback font first and swaps in the real one once it
+ * loads. A real person always has those fonts loaded well before they click Export - but a
+ * fresh automated session can call this within milliseconds of the page loading, before the
+ * swap happens. Without waiting, the PDF silently captures the fallback font, whose different
+ * character widths change how much text fits per line - this is what caused both the
+ * wrong-font and unexpected-blank-space-at-the-bottom bugs. Explicitly waiting on the
+ * standard CSS Font Loading API's `document.fonts.ready` guarantees the real fonts are in
+ * before the page is snapshotted, matching what a human's browser already has by then.
+ *
+ * Also clears any visible toast notification first - a human naturally pauses between
+ * actions long enough for a toast's fade-out to finish, but back-to-back automated tool
+ * calls can catch one mid-animation, baking a stray "this resume now overflows" banner into
+ * an otherwise-fine, one-page PDF.
  */
 export async function exportPdf(page: Page): Promise<string> {
+  await page.evaluate(() => {
+    const toasts = document.getElementById("toast-container");
+    if (toasts) toasts.innerHTML = "";
+  });
+  await page.evaluate(() => document.fonts.ready);
   const buffer = await page.pdf({ printBackground: true, preferCSSPageSize: true });
   return buffer.toString("base64");
 }
